@@ -2,6 +2,7 @@ package com.outsystems.mapbox;
 
 import android.graphics.Color;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.FrameLayout;
@@ -91,10 +92,10 @@ public class MapboxPluginEntry extends CordovaPlugin {
 
                 closeInternal();
 
-                ViewGroup decor = (ViewGroup) cordova.getActivity().getWindow().getDecorView();
+                boolean behindWebView = options.optBoolean("behindWebView", false);
 
                 rootView = new FrameLayout(cordova.getActivity());
-                rootView.setBackgroundColor(Color.WHITE);
+                rootView.setBackgroundColor(Color.TRANSPARENT);
                 rootView.setLayoutParams(layoutParamsFromOptions(options));
 
                 mapView = new MapView(cordova.getActivity());
@@ -123,7 +124,12 @@ public class MapboxPluginEntry extends CordovaPlugin {
                     rootView.addView(closeButton);
                 }
 
-                decor.addView(rootView);
+                if (behindWebView) {
+                    addBehindWebView(rootView);
+                } else {
+                    ViewGroup decor = (ViewGroup) cordova.getActivity().getWindow().getDecorView();
+                    decor.addView(rootView);
+                }
 
                 mapView.getMapboxMap().setCamera(new CameraOptions.Builder()
                     .center(Point.fromLngLat(longitude, latitude))
@@ -219,6 +225,22 @@ public class MapboxPluginEntry extends CordovaPlugin {
 
         mapView = null;
         rootView = null;
+    }
+
+    private void addBehindWebView(View nativeView) {
+        View webViewView = webView.getView();
+        webViewView.setBackgroundColor(Color.TRANSPARENT);
+
+        if (webViewView.getParent() instanceof ViewGroup) {
+            ViewGroup parent = (ViewGroup) webViewView.getParent();
+            int webViewIndex = parent.indexOfChild(webViewView);
+            int insertIndex = Math.max(0, webViewIndex);
+            parent.addView(nativeView, insertIndex);
+            return;
+        }
+
+        ViewGroup decor = (ViewGroup) cordova.getActivity().getWindow().getDecorView();
+        decor.addView(nativeView, 0);
     }
 
     private FrameLayout.LayoutParams layoutParamsFromOptions(JSONObject options) {
