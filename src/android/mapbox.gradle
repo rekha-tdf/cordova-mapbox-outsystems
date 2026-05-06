@@ -22,7 +22,7 @@ repositories {
             basic(BasicAuthentication)
         }
         credentials {
-            username = "mapbox"
+            username = "devnandagopaljb"
             password = mapboxDownloadsToken ?: ""
         }
     }
