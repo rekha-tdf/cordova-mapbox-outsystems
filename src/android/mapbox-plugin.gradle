@@ -66,9 +66,5 @@ dependencies {
     def mapboxAndroidVersion = project.findProperty("MAPBOX_ANDROID_VERSION")
             ?: System.getenv("MAPBOX_ANDROID_VERSION")
             ?: "11.20.2"
-    implementation("com.mapbox.maps:android:${mapboxAndroidVersion}") {
-        exclude group: "com.mapbox.plugin", module: "maps-animation"
-        exclude group: "com.mapbox.plugin", module: "maps-locationcomponent"
-        exclude group: "com.mapbox.plugin", module: "maps-scalebar"
-    }
+    implementation "com.mapbox.maps:android:${mapboxAndroidVersion}"
 }
