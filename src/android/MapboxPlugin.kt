@@ -24,7 +24,7 @@ import org.apache.cordova.CordovaPlugin
 import org.json.JSONArray
 import org.json.JSONObject
 
-class MapboxPlugin : CordovaPlugin() {
+open class MapboxPlugin : CordovaPlugin() {
     private var mapView: MapView? = null
     private var rootView: FrameLayout? = null
     private var annotationManager: PointAnnotationManager? = null
