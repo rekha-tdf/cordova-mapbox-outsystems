@@ -30,7 +30,7 @@
 
         <config-file parent="/*" target="res/xml/config.xml">
             <feature name="MapboxPlugin">
-                <param name="android-package" value="com.outsystems.mapbox.MapboxPlugin" />
+                <param name="android-package" value="com.outsystems.mapbox.MapboxPluginEntry" />
                 <param name="onload" value="true" />
             </feature>
         </config-file>
@@ -46,6 +46,7 @@
         </config-file>
 
         <framework src="src/android/mapbox-plugin.gradle" custom="true" type="gradleReference" />
+        <source-file src="src/android/MapboxPluginEntry.java" target-dir="app/src/main/java/com/outsystems/mapbox" />
         <source-file src="src/android/MapboxPlugin.kt" target-dir="app/src/main/java/com/outsystems/mapbox" />
     </platform>
 
