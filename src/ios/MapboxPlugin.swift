@@ -38,6 +38,7 @@ class MapboxPlugin: CDVPlugin {
             let longitude = options["longitude"] as? Double ?? 0
             let zoom = options["zoom"] as? Double ?? 12
             let styleUrl = options["styleUrl"] as? String
+            let behindWebView = options["behindWebView"] as? Bool ?? false
 
             self.closeInternal()
 
@@ -57,7 +58,14 @@ class MapboxPlugin: CDVPlugin {
                 mapInitOptions: initOptions
             )
             mapView.autoresizingMask = isInline ? [] : [.flexibleWidth, .flexibleHeight]
-            self.webView.superview?.addSubview(mapView)
+            self.makeWebViewTransparent()
+
+            if behindWebView, let superview = self.webView.superview {
+                superview.insertSubview(mapView, belowSubview: self.webView)
+            } else {
+                self.webView.superview?.addSubview(mapView)
+            }
+
             self.mapView = mapView
             self.annotations = mapView.annotations.makePointAnnotationManager()
 
@@ -117,6 +125,28 @@ class MapboxPlugin: CDVPlugin {
 
             let options = command.argument(at: 0) as? [String: Any] ?? [:]
             mapView.frame = self.frameFromOptions(options)
+            self.sendSuccess(command)
+        }
+    }
+
+    @objc(setLayerMode:)
+    func setLayerMode(command: CDVInvokedUrlCommand) {
+        DispatchQueue.main.async {
+            guard let mapView = self.mapView else {
+                self.sendError("Map is not initialized.", command)
+                return
+            }
+
+            let options = command.argument(at: 0) as? [String: Any] ?? [:]
+            let mode = options["mode"] as? String ?? "behind"
+
+            if mode.lowercased() == "front" {
+                self.webView.superview?.bringSubviewToFront(mapView)
+            } else if let superview = self.webView.superview {
+                self.makeWebViewTransparent()
+                superview.insertSubview(mapView, belowSubview: self.webView)
+            }
+
             self.sendSuccess(command)
         }
     }
@@ -237,6 +267,12 @@ class MapboxPlugin: CDVPlugin {
         let width = options["width"] as? Double ?? Double(webView.bounds.width)
         let height = options["height"] as? Double ?? Double(webView.bounds.height)
         return CGRect(x: x, y: y, width: max(width, 1), height: max(height, 1))
+    }
+
+    private func makeWebViewTransparent() {
+        webView.isOpaque = false
+        webView.backgroundColor = UIColor.clear
+        webView.scrollView.backgroundColor = UIColor.clear
     }
 
     private func sendSuccess(_ command: CDVInvokedUrlCommand) {
