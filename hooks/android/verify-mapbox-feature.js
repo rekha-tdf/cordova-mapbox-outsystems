@@ -24,7 +24,7 @@ module.exports = function (context) {
 
   const config = fs.readFileSync(configPath, 'utf8');
   const hasService = config.indexOf('feature name="MapboxPlugin"') >= 0;
-  const hasClass = config.indexOf('com.outsystems.mapbox.MapboxPlugin') >= 0;
+  const hasClass = config.indexOf('com.outsystems.mapbox.MapboxPluginEntry') >= 0;
 
   console.log('[MapboxPlugin] Android config.xml feature present: ' + hasService);
   console.log('[MapboxPlugin] Android config.xml class present: ' + hasClass);
@@ -32,7 +32,7 @@ module.exports = function (context) {
   if (!hasService || !hasClass) {
     console.log('[MapboxPlugin] Expected feature entry was not generated:');
     console.log('<feature name="MapboxPlugin">');
-    console.log('  <param name="android-package" value="com.outsystems.mapbox.MapboxPlugin" />');
+    console.log('  <param name="android-package" value="com.outsystems.mapbox.MapboxPluginEntry" />');
     console.log('</feature>');
   }
 };
