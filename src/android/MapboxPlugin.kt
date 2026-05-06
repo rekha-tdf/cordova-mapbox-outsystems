@@ -10,9 +10,9 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
 import com.mapbox.geojson.Point
+import com.mapbox.common.MapboxOptions
 import com.mapbox.maps.CameraOptions
 import com.mapbox.maps.MapView
-import com.mapbox.maps.MapboxOptions
 import com.mapbox.maps.Style
 import com.mapbox.maps.plugin.annotation.annotations
 import com.mapbox.maps.plugin.annotation.generated.PointAnnotation
