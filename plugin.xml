@@ -19,11 +19,14 @@
     <!-- Mapbox Android SDK artifact. Use 11.x unless your project needs another pinned version. -->
     <preference name="MAPBOX_ANDROID_VERSION" default="11.20.2" />
 
+    <!-- Comma-separated Android CPU architectures to package. Add x86_64 only for emulator builds. -->
+    <preference name="MAPBOX_ANDROID_ABIS" default="arm64-v8a,armeabi-v7a" />
+
     <!-- Required only when Gradle/CocoaPods needs to download private Mapbox artifacts. -->
     <preference name="MAPBOX_DOWNLOADS_TOKEN" default="__MAPBOX_DOWNLOADS_TOKEN_NOT_SET__" />
 
     <platform name="android">
-        <config-file parent="/widget" target="res/xml/config.xml">
+        <config-file parent="/*" target="res/xml/config.xml">
             <feature name="MapboxPlugin">
                 <param name="android-package" value="com.outsystems.mapbox.MapboxPlugin" />
                 <param name="onload" value="true" />
@@ -33,8 +36,6 @@
         <config-file parent="/manifest" target="AndroidManifest.xml">
             <uses-permission android:name="android.permission.INTERNET" />
             <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-            <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-            <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
         </config-file>
 
         <config-file parent="/resources" target="res/values/strings.xml">
@@ -47,7 +48,7 @@
     </platform>
 
     <platform name="ios">
-        <config-file parent="/widget*" target="config.xml">
+        <config-file parent="/*" target="config.xml">
             <feature name="MapboxPlugin">
                 <param name="ios-package" value="MapboxPlugin" />
                 <param name="onload" value="true" />
