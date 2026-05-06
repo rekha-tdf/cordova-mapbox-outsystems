@@ -14,13 +14,13 @@
     </js-module>
 
     <!-- Runtime public token fallback. You may also pass token from client side in initialize(). -->
-    <preference name="MAPBOX_ACCESS_TOKEN" default="" />
+    <preference name="MAPBOX_ACCESS_TOKEN" default="__MAPBOX_ACCESS_TOKEN_NOT_SET__" />
 
     <!-- Mapbox Android SDK artifact. Use 11.x unless your project needs another pinned version. -->
     <preference name="MAPBOX_ANDROID_VERSION" default="11.20.2" />
 
     <!-- Required only when Gradle/CocoaPods needs to download private Mapbox artifacts. -->
-    <preference name="MAPBOX_DOWNLOADS_TOKEN" default="" />
+    <preference name="MAPBOX_DOWNLOADS_TOKEN" default="__MAPBOX_DOWNLOADS_TOKEN_NOT_SET__" />
 
     <platform name="android">
         <config-file parent="/*" target="res/xml/config.xml">
@@ -35,6 +35,11 @@
             <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
             <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
             <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+        </config-file>
+
+        <config-file parent="/resources" target="res/values/strings.xml">
+            <string name="mapbox_access_token">$MAPBOX_ACCESS_TOKEN</string>
+            <string name="mapbox_downloads_token">$MAPBOX_DOWNLOADS_TOKEN</string>
         </config-file>
 
         <framework src="src/android/mapbox-plugin.gradle" custom="true" type="gradleReference" />

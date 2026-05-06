@@ -54,6 +54,9 @@ class MapboxPlugin : CordovaPlugin() {
             try {
                 val token = options.optString("token")
                     .ifBlank { preferences.getString("MAPBOX_ACCESS_TOKEN", "") }
+                    .ifBlank { androidString("mapbox_access_token") }
+                    .takeUnless { it == "__MAPBOX_ACCESS_TOKEN_NOT_SET__" }
+                    ?: ""
 
                 if (token.isBlank()) {
                     callback.error("Mapbox access token is required.")
@@ -262,5 +265,11 @@ class MapboxPlugin : CordovaPlugin() {
         paint.color = Color.WHITE
         canvas.drawCircle(width / 2f, 40f, 13f, paint)
         return bitmap
+    }
+
+    private fun androidString(name: String): String {
+        val activity = cordova.activity
+        val resourceId = activity.resources.getIdentifier(name, "string", activity.packageName)
+        return if (resourceId == 0) "" else activity.getString(resourceId)
     }
 }

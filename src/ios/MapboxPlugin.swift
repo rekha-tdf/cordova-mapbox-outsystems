@@ -193,11 +193,11 @@ class MapboxPlugin: CDVPlugin {
 
     private func preferenceValue(_ key: String) -> String {
         if let value = commandDelegate.settings[key] as? String, !value.isEmpty {
-            return value
+            return value == "__MAPBOX_ACCESS_TOKEN_NOT_SET__" ? "" : value
         }
         let lowerKey = key.lowercased()
         if let value = commandDelegate.settings[lowerKey] as? String, !value.isEmpty {
-            return value
+            return value == "__MAPBOX_ACCESS_TOKEN_NOT_SET__" ? "" : value
         }
         return ""
     }
