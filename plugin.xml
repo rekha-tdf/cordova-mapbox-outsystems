@@ -26,6 +26,8 @@
     <preference name="MAPBOX_DOWNLOADS_TOKEN" default="__MAPBOX_DOWNLOADS_TOKEN_NOT_SET__" />
 
     <platform name="android">
+        <hook type="after_prepare" src="hooks/android/verify-mapbox-feature.js" />
+
         <config-file parent="/*" target="res/xml/config.xml">
             <feature name="MapboxPlugin">
                 <param name="android-package" value="com.outsystems.mapbox.MapboxPlugin" />
