@@ -49,6 +49,10 @@ module.exports = {
     return call('setViewport', [options || {}]);
   },
 
+  setLayerMode: function (options) {
+    return call('setLayerMode', [options || {}]);
+  },
+
   addMarker: function (options) {
     return call('addMarker', [options || {}]);
   },
