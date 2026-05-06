@@ -1,0 +1,26 @@
+{
+  "name": "cordova-plugin-mapbox-o11-modern",
+  "version": "2.0.0-o11",
+  "description": "Modern Mapbox Cordova plugin for OutSystems 11 mobile builds.",
+  "license": "MIT",
+  "files": [
+    "plugin.xml",
+    "package.json",
+    "www",
+    "src"
+  ],
+  "cordova": {
+    "id": "cordova-plugin-mapbox-o11-modern",
+    "platforms": [
+      "android",
+      "ios"
+    ]
+  },
+  "keywords": [
+    "outsystems",
+    "cordova",
+    "mapbox",
+    "mabs",
+    "androidx"
+  ]
+}
