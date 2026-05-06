@@ -29,6 +29,17 @@ public class MapboxPluginEntry extends CordovaPlugin {
         }
 
         switch (action) {
+            case "ping":
+                try {
+                    JSONObject result = new JSONObject();
+                    result.put("status", "ok");
+                    result.put("service", "MapboxPlugin");
+                    result.put("class", "MapboxPluginEntry");
+                    callbackContext.success(result);
+                } catch (Exception e) {
+                    callbackContext.error(e.getMessage());
+                }
+                return true;
             case "initialize":
                 initialize(options, callbackContext);
                 return true;
