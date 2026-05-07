@@ -20,7 +20,7 @@ import com.mapbox.maps.CameraOptions;
 import com.mapbox.maps.MapView;
 import com.mapbox.maps.Style;
 import com.mapbox.maps.plugin.Plugin;
-import com.mapbox.maps.plugin.compass.CompassPlugin;
+import com.mapbox.maps.plugin.gestures.GesturesPlugin;
 import com.mapbox.maps.plugin.locationcomponent.LocationComponentPlugin;
 
 import org.apache.cordova.CallbackContext;
@@ -67,8 +67,8 @@ public class MapboxPluginEntry extends CordovaPlugin {
             case "enableUserLocation":
                 enableUserLocation(callbackContext);
                 return true;
-            case "setCompassEnabled":
-                setCompassEnabled(options, callbackContext);
+            case "setNorthUpMode":
+                setNorthUpMode(options, callbackContext);
                 return true;
             case "getCamera":
                 getCamera(callbackContext);
@@ -267,25 +267,32 @@ public class MapboxPluginEntry extends CordovaPlugin {
         return cordova.getActivity().checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
     }
 
-    private void setCompassEnabled(JSONObject options, CallbackContext callback) {
+    private void setNorthUpMode(JSONObject options, CallbackContext callback) {
         cordova.getActivity().runOnUiThread(() -> {
             if (mapView == null) {
                 callback.error("Map is not initialized.");
                 return;
             }
 
-            CompassPlugin compass = mapView.getPlugin(Plugin.MAPBOX_COMPASS_PLUGIN_ID);
+            GesturesPlugin gestures = mapView.getPlugin(Plugin.MAPBOX_GESTURES_PLUGIN_ID);
 
-            if (compass == null) {
-                callback.error("Compass component is not available.");
+            if (gestures == null) {
+                callback.error("Gestures component is not available.");
                 return;
             }
 
             boolean enabled = options.optBoolean("enabled", true);
-            compass.setEnabled(enabled);
-            compass.setVisibility(enabled);
-            compass.setClickable(enabled);
-            compass.setFadeWhenFacingNorth(false);
+            gestures.setRotateEnabled(!enabled);
+
+            if (enabled) {
+                mapView.getMapboxMap().setCamera(new CameraOptions.Builder()
+                    .center(mapView.getMapboxMap().getCameraState().getCenter())
+                    .zoom(mapView.getMapboxMap().getCameraState().getZoom())
+                    .pitch(mapView.getMapboxMap().getCameraState().getPitch())
+                    .bearing(0.0)
+                    .build());
+            }
+
             callback.success();
         });
     }
