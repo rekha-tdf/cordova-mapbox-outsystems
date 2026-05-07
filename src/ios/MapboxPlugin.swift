@@ -148,8 +148,8 @@ class MapboxPlugin: CDVPlugin {
         }
     }
 
-    @objc(setNorthUpMode:)
-    func setNorthUpMode(command: CDVInvokedUrlCommand) {
+    @objc(setDeviceHeadingEnabled:)
+    func setDeviceHeadingEnabled(command: CDVInvokedUrlCommand) {
         DispatchQueue.main.async {
             guard let mapView = self.mapView else {
                 self.sendError("Map is not initialized.", command)
@@ -158,18 +158,13 @@ class MapboxPlugin: CDVPlugin {
 
             let options = command.argument(at: 0) as? [String: Any] ?? [:]
             let enabled = options["enabled"] as? Bool ?? true
-            mapView.gestures.options.rotateEnabled = !enabled
 
             if enabled {
-                let state = mapView.cameraState
-                mapView.mapboxMap.setCamera(to: CameraOptions(
-                    center: state.center,
-                    zoom: state.zoom,
-                    bearing: 0,
-                    pitch: state.pitch
-                ))
+                mapView.location.options.puckType = .puck2D(.makeDefault(showBearing: true))
+                mapView.location.options.puckBearing = .heading
             }
 
+            mapView.location.options.puckBearingEnabled = enabled
             self.sendSuccess(command)
         }
     }
