@@ -1,12 +1,14 @@
 import Foundation
 import Cordova
+import CoreLocation
 import MapboxMaps
 
 @objc(MapboxPlugin)
-class MapboxPlugin: CDVPlugin {
+class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
     private var mapView: MapView?
     private var annotations: PointAnnotationManager?
     private var markers: [String: PointAnnotation] = [:]
+    private var headingLocationManager: CLLocationManager?
 
     @objc(ping:)
     func ping(command: CDVInvokedUrlCommand) {
@@ -181,25 +183,57 @@ class MapboxPlugin: CDVPlugin {
             let enabled = options["enabled"] as? Bool ?? true
 
             if !enabled {
-                mapView.viewport.transition(to: .idle)
+                self.stopHeadingFollowMode()
                 self.sendSuccess(command)
                 return
             }
 
-            let zoom = options["zoom"] as? CGFloat ?? CGFloat(mapView.cameraState.zoom)
-            let pitch = options["pitch"] as? CGFloat ?? CGFloat(mapView.cameraState.pitch)
-
             mapView.location.options.puckType = .puck2D(.makeDefault(showBearing: true))
             mapView.location.options.puckBearing = .heading
             mapView.location.options.puckBearingEnabled = true
-            mapView.viewport.transition(to: .followPuck(
-                zoom: zoom,
-                bearing: .heading,
-                pitch: pitch
-            ))
 
-            self.sendSuccess(command)
+            self.startHeadingFollowMode(command)
         }
+    }
+
+    private func startHeadingFollowMode(_ command: CDVInvokedUrlCommand) {
+        guard CLLocationManager.headingAvailable() else {
+            sendError("Device heading sensor is not available.", command)
+            return
+        }
+
+        if headingLocationManager == nil {
+            let manager = CLLocationManager()
+            manager.delegate = self
+            manager.headingFilter = 1
+            headingLocationManager = manager
+        }
+
+        if CLLocationManager.authorizationStatus() == .notDetermined {
+            headingLocationManager?.requestWhenInUseAuthorization()
+        }
+
+        headingLocationManager?.startUpdatingHeading()
+        sendSuccess(command)
+    }
+
+    private func stopHeadingFollowMode() {
+        headingLocationManager?.stopUpdatingHeading()
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+        let bearing = newHeading.trueHeading >= 0 ? newHeading.trueHeading : newHeading.magneticHeading
+        guard bearing >= 0 else {
+            return
+        }
+
+        DispatchQueue.main.async {
+            self.mapView?.mapboxMap.setCamera(to: CameraOptions(bearing: bearing))
+        }
+    }
+
+    func locationManagerShouldDisplayHeadingCalibration(_ manager: CLLocationManager) -> Bool {
+        return true
     }
 
     @objc(addMarker:)
@@ -291,6 +325,7 @@ class MapboxPlugin: CDVPlugin {
     }
 
     private func closeInternal() {
+        stopHeadingFollowMode()
         markers.removeAll()
         annotations = nil
         mapView?.removeFromSuperview()
