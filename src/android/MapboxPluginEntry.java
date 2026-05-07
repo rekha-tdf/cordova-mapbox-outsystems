@@ -8,7 +8,11 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.os.Build;
+import android.os.Bundle;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -43,6 +47,9 @@ public class MapboxPluginEntry extends CordovaPlugin {
     private final float[] headingOrientationValues = new float[3];
     private double lastHeadingBearing = -1.0;
     private long lastHeadingUpdateMs = 0L;
+    private LocationManager locationManager;
+    private LocationListener userTrackingListener;
+    private long lastUserTrackingUpdateMs = 0L;
 
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) {
@@ -83,6 +90,9 @@ public class MapboxPluginEntry extends CordovaPlugin {
                 return true;
             case "setHeadingFollowMode":
                 setHeadingFollowMode(options, callbackContext);
+                return true;
+            case "setUserTrackingEnabled":
+                setUserTrackingEnabled(options, callbackContext);
                 return true;
             case "getCamera":
                 getCamera(callbackContext);
@@ -281,6 +291,11 @@ public class MapboxPluginEntry extends CordovaPlugin {
         return cordova.getActivity().checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
     }
 
+    private boolean hasLocationPermission() {
+        return hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+            || hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION);
+    }
+
     private void setDeviceHeadingEnabled(JSONObject options, CallbackContext callback) {
         cordova.getActivity().runOnUiThread(() -> {
             if (mapView == null) {
@@ -424,6 +439,123 @@ public class MapboxPluginEntry extends CordovaPlugin {
         return (to - from + 540.0) % 360.0 - 180.0;
     }
 
+    private void setUserTrackingEnabled(JSONObject options, CallbackContext callback) {
+        cordova.getActivity().runOnUiThread(() -> {
+            if (mapView == null) {
+                callback.error("Map is not initialized.");
+                return;
+            }
+
+            boolean enabled = options.optBoolean("enabled", true);
+            if (!enabled) {
+                stopUserTracking();
+                callback.success();
+                return;
+            }
+
+            startUserTracking(callback);
+        });
+    }
+
+    private void startUserTracking(CallbackContext callback) {
+        if (!hasLocationPermission()) {
+            callback.error("Location permission is not granted.");
+            return;
+        }
+
+        stopUserTracking();
+
+        locationManager = (LocationManager) cordova.getActivity().getSystemService(Context.LOCATION_SERVICE);
+        if (locationManager == null) {
+            callback.error("Device location manager is not available.");
+            return;
+        }
+
+        userTrackingListener = new LocationListener() {
+            @Override
+            public void onLocationChanged(Location location) {
+                if (mapView == null || location == null) {
+                    return;
+                }
+
+                long now = System.currentTimeMillis();
+                if (now - lastUserTrackingUpdateMs < 500L) {
+                    return;
+                }
+                lastUserTrackingUpdateMs = now;
+
+                final double latitude = location.getLatitude();
+                final double longitude = location.getLongitude();
+
+                cordova.getActivity().runOnUiThread(() -> {
+                    if (mapView != null) {
+                        mapView.getMapboxMap().setCamera(new CameraOptions.Builder()
+                            .center(Point.fromLngLat(longitude, latitude))
+                            .build());
+                    }
+                });
+            }
+
+            @Override
+            public void onStatusChanged(String provider, int status, Bundle extras) {
+            }
+
+            @Override
+            public void onProviderEnabled(String provider) {
+            }
+
+            @Override
+            public void onProviderDisabled(String provider) {
+            }
+        };
+
+        try {
+            boolean gpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER);
+            boolean networkEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
+
+            if (gpsEnabled) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER,
+                    500L,
+                    1.0f,
+                    userTrackingListener
+                );
+            }
+
+            if (networkEnabled) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.NETWORK_PROVIDER,
+                    500L,
+                    1.0f,
+                    userTrackingListener
+                );
+            }
+
+            if (!gpsEnabled && !networkEnabled) {
+                stopUserTracking();
+                callback.error("Location provider is not enabled.");
+                return;
+            }
+
+            callback.success();
+        } catch (SecurityException e) {
+            stopUserTracking();
+            callback.error("Location permission is not granted.");
+        }
+    }
+
+    private void stopUserTracking() {
+        if (locationManager != null && userTrackingListener != null) {
+            try {
+                locationManager.removeUpdates(userTrackingListener);
+            } catch (SecurityException ignored) {
+            }
+        }
+
+        userTrackingListener = null;
+        lastUserTrackingUpdateMs = 0L;
+    }
+
     private void getCamera(CallbackContext callback) {
         cordova.getActivity().runOnUiThread(() -> {
             if (mapView == null) {
@@ -454,6 +586,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
 
     private void closeInternal() {
         stopHeadingFollowMode();
+        stopUserTracking();
 
         if (mapView != null) {
             try {
