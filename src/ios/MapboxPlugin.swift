@@ -11,6 +11,8 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
     private var headingLocationManager: CLLocationManager?
     private var lastHeadingBearing: CLLocationDirection = -1
     private var lastHeadingUpdate: TimeInterval = 0
+    private var isUserTrackingEnabled = false
+    private var lastUserTrackingUpdate: TimeInterval = 0
 
     @objc(ping:)
     func ping(command: CDVInvokedUrlCommand) {
@@ -198,6 +200,27 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
         }
     }
 
+    @objc(setUserTrackingEnabled:)
+    func setUserTrackingEnabled(command: CDVInvokedUrlCommand) {
+        DispatchQueue.main.async {
+            guard self.mapView != nil else {
+                self.sendError("Map is not initialized.", command)
+                return
+            }
+
+            let options = command.argument(at: 0) as? [String: Any] ?? [:]
+            let enabled = options["enabled"] as? Bool ?? true
+
+            if !enabled {
+                self.stopUserTracking()
+                self.sendSuccess(command)
+                return
+            }
+
+            self.startUserTracking(command)
+        }
+    }
+
     private func startHeadingFollowMode(_ command: CDVInvokedUrlCommand) {
         guard CLLocationManager.headingAvailable() else {
             sendError("Device heading sensor is not available.", command)
@@ -217,6 +240,30 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
 
         headingLocationManager?.startUpdatingHeading()
         sendSuccess(command)
+    }
+
+    private func startUserTracking(_ command: CDVInvokedUrlCommand) {
+        if headingLocationManager == nil {
+            let manager = CLLocationManager()
+            manager.delegate = self
+            manager.headingFilter = 1
+            manager.desiredAccuracy = kCLLocationAccuracyBest
+            headingLocationManager = manager
+        }
+
+        if CLLocationManager.authorizationStatus() == .notDetermined {
+            headingLocationManager?.requestWhenInUseAuthorization()
+        }
+
+        isUserTrackingEnabled = true
+        headingLocationManager?.startUpdatingLocation()
+        sendSuccess(command)
+    }
+
+    private func stopUserTracking() {
+        isUserTrackingEnabled = false
+        headingLocationManager?.stopUpdatingLocation()
+        lastUserTrackingUpdate = 0
     }
 
     private func stopHeadingFollowMode() {
@@ -257,6 +304,24 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
 
         DispatchQueue.main.async {
             self.mapView?.mapboxMap.setCamera(to: CameraOptions(bearing: bearing))
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard isUserTrackingEnabled, let location = locations.last else {
+            return
+        }
+
+        let now = Date().timeIntervalSince1970
+        if now - lastUserTrackingUpdate < 0.5 {
+            return
+        }
+
+        lastUserTrackingUpdate = now
+        let coordinate = location.coordinate
+
+        DispatchQueue.main.async {
+            self.mapView?.mapboxMap.setCamera(to: CameraOptions(center: coordinate))
         }
     }
 
@@ -358,6 +423,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
 
     private func closeInternal() {
         stopHeadingFollowMode()
+        stopUserTracking()
         markers.removeAll()
         annotations = nil
         mapView?.removeFromSuperview()
