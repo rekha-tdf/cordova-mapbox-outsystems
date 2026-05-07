@@ -169,6 +169,39 @@ class MapboxPlugin: CDVPlugin {
         }
     }
 
+    @objc(setHeadingFollowMode:)
+    func setHeadingFollowMode(command: CDVInvokedUrlCommand) {
+        DispatchQueue.main.async {
+            guard let mapView = self.mapView else {
+                self.sendError("Map is not initialized.", command)
+                return
+            }
+
+            let options = command.argument(at: 0) as? [String: Any] ?? [:]
+            let enabled = options["enabled"] as? Bool ?? true
+
+            if !enabled {
+                mapView.viewport.transition(to: .idle)
+                self.sendSuccess(command)
+                return
+            }
+
+            let zoom = options["zoom"] as? CGFloat ?? CGFloat(mapView.cameraState.zoom)
+            let pitch = options["pitch"] as? CGFloat ?? CGFloat(mapView.cameraState.pitch)
+
+            mapView.location.options.puckType = .puck2D(.makeDefault(showBearing: true))
+            mapView.location.options.puckBearing = .heading
+            mapView.location.options.puckBearingEnabled = true
+            mapView.viewport.transition(to: .followPuck(
+                zoom: zoom,
+                bearing: .heading,
+                pitch: pitch
+            ))
+
+            self.sendSuccess(command)
+        }
+    }
+
     @objc(addMarker:)
     func addMarker(command: CDVInvokedUrlCommand) {
         DispatchQueue.main.async {
