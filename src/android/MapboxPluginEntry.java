@@ -1,8 +1,13 @@
 package com.outsystems.mapbox;
 
 import android.Manifest;
+import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.os.Build;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -22,10 +27,6 @@ import com.mapbox.maps.Style;
 import com.mapbox.maps.plugin.PuckBearing;
 import com.mapbox.maps.plugin.Plugin;
 import com.mapbox.maps.plugin.locationcomponent.LocationComponentPlugin;
-import com.mapbox.maps.plugin.locationcomponent.LocationcomponentUtils;
-import com.mapbox.maps.plugin.viewport.ViewportPlugin;
-import com.mapbox.maps.plugin.viewport.data.FollowPuckViewportStateBearing;
-import com.mapbox.maps.plugin.viewport.data.FollowPuckViewportStateOptions;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
@@ -36,6 +37,10 @@ public class MapboxPluginEntry extends CordovaPlugin {
     private MapView mapView;
     private FrameLayout rootView;
     private final List<TouchRect> touchableRects = new ArrayList<>();
+    private SensorManager sensorManager;
+    private SensorEventListener headingSensorListener;
+    private final float[] headingRotationMatrix = new float[9];
+    private final float[] headingOrientationValues = new float[3];
 
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) {
@@ -299,7 +304,6 @@ public class MapboxPluginEntry extends CordovaPlugin {
 
             boolean enabled = options.optBoolean("enabled", true);
             location.setEnabled(true);
-            location.setLocationPuck(LocationcomponentUtils.createDefault2DPuck(true));
             location.setPuckBearing(PuckBearing.HEADING);
             location.setPuckBearingEnabled(enabled);
 
@@ -314,56 +318,77 @@ public class MapboxPluginEntry extends CordovaPlugin {
                 return;
             }
 
-            boolean hasFineLocation = hasPermission(Manifest.permission.ACCESS_FINE_LOCATION);
-            boolean hasCoarseLocation = hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION);
-
-            if (!hasFineLocation && !hasCoarseLocation) {
-                callback.error("Location permission is not granted.");
-                return;
-            }
-
-            LocationComponentPlugin location =
-                mapView.getPlugin(Plugin.MAPBOX_LOCATION_COMPONENT_PLUGIN_ID);
-            ViewportPlugin viewport =
-                mapView.getPlugin(Plugin.MAPBOX_VIEWPORT_PLUGIN_ID);
-
-            if (location == null) {
-                callback.error("Location component is not available.");
-                return;
-            }
-
-            if (viewport == null) {
-                callback.error("Viewport component is not available.");
-                return;
-            }
-
             boolean enabled = options.optBoolean("enabled", true);
 
             if (!enabled) {
-                viewport.idle();
+                stopHeadingFollowMode();
                 callback.success();
                 return;
             }
 
-            location.setEnabled(true);
-            location.setLocationPuck(LocationcomponentUtils.createDefault2DPuck(true));
-            location.setPuckBearing(PuckBearing.HEADING);
-            location.setPuckBearingEnabled(true);
-
-            FollowPuckViewportStateOptions followOptions =
-                new FollowPuckViewportStateOptions.Builder()
-                    .bearing(FollowPuckViewportStateBearing.SyncWithLocationPuck.INSTANCE)
-                    .zoom(options.optDouble("zoom", mapView.getMapboxMap().getCameraState().getZoom()))
-                    .pitch(options.optDouble("pitch", mapView.getMapboxMap().getCameraState().getPitch()))
-                    .build();
-
-            viewport.transitionTo(
-                viewport.makeFollowPuckViewportState(followOptions),
-                viewport.makeImmediateViewportTransition()
-            );
-
-            callback.success();
+            startHeadingFollowMode(callback);
         });
+    }
+
+    private void startHeadingFollowMode(CallbackContext callback) {
+        stopHeadingFollowMode();
+
+        sensorManager = (SensorManager) cordova.getActivity().getSystemService(Context.SENSOR_SERVICE);
+        if (sensorManager == null) {
+            callback.error("Device sensor manager is not available.");
+            return;
+        }
+
+        Sensor rotationVectorSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
+        if (rotationVectorSensor == null) {
+            callback.error("Device rotation sensor is not available.");
+            return;
+        }
+
+        headingSensorListener = new SensorEventListener() {
+            @Override
+            public void onSensorChanged(SensorEvent event) {
+                if (mapView == null || event.sensor.getType() != Sensor.TYPE_ROTATION_VECTOR) {
+                    return;
+                }
+
+                SensorManager.getRotationMatrixFromVector(headingRotationMatrix, event.values);
+                SensorManager.getOrientation(headingRotationMatrix, headingOrientationValues);
+
+                double bearing = Math.toDegrees(headingOrientationValues[0]);
+                if (bearing < 0) {
+                    bearing += 360.0;
+                }
+
+                cordova.getActivity().runOnUiThread(() -> {
+                    if (mapView != null) {
+                        mapView.getMapboxMap().setCamera(new CameraOptions.Builder()
+                            .bearing(bearing)
+                            .build());
+                    }
+                });
+            }
+
+            @Override
+            public void onAccuracyChanged(Sensor sensor, int accuracy) {
+            }
+        };
+
+        sensorManager.registerListener(
+            headingSensorListener,
+            rotationVectorSensor,
+            SensorManager.SENSOR_DELAY_UI
+        );
+
+        callback.success();
+    }
+
+    private void stopHeadingFollowMode() {
+        if (sensorManager != null && headingSensorListener != null) {
+            sensorManager.unregisterListener(headingSensorListener);
+        }
+
+        headingSensorListener = null;
     }
 
     private void getCamera(CallbackContext callback) {
@@ -395,6 +420,8 @@ public class MapboxPluginEntry extends CordovaPlugin {
     }
 
     private void closeInternal() {
+        stopHeadingFollowMode();
+
         if (mapView != null) {
             try {
                 mapView.onStop();
