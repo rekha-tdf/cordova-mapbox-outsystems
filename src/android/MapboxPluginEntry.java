@@ -16,7 +16,6 @@ import com.mapbox.maps.MapView;
 import com.mapbox.maps.Style;
 import com.mapbox.maps.plugin.Plugin;
 import com.mapbox.maps.plugin.locationcomponent.LocationComponentPlugin;
-import com.mapbox.maps.plugin.locationcomponent.generated.LocationComponentSettings;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
@@ -206,10 +205,8 @@ public class MapboxPluginEntry extends CordovaPlugin {
                 return;
             }
 
-            location.updateSettings(new LocationComponentSettings.Builder()
-                .setEnabled(true)
-                .setPuckBearingEnabled(true)
-                .build());
+            location.setEnabled(true);
+            location.setPuckBearingEnabled(true);
 
             callback.success();
         });
