@@ -22,6 +22,10 @@ import com.mapbox.maps.Style;
 import com.mapbox.maps.plugin.PuckBearing;
 import com.mapbox.maps.plugin.Plugin;
 import com.mapbox.maps.plugin.locationcomponent.LocationComponentPlugin;
+import com.mapbox.maps.plugin.locationcomponent.LocationcomponentUtils;
+import com.mapbox.maps.plugin.viewport.ViewportPlugin;
+import com.mapbox.maps.plugin.viewport.data.FollowPuckViewportStateBearing;
+import com.mapbox.maps.plugin.viewport.data.FollowPuckViewportStateOptions;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
@@ -69,6 +73,9 @@ public class MapboxPluginEntry extends CordovaPlugin {
                 return true;
             case "setDeviceHeadingEnabled":
                 setDeviceHeadingEnabled(options, callbackContext);
+                return true;
+            case "setHeadingFollowMode":
+                setHeadingFollowMode(options, callbackContext);
                 return true;
             case "getCamera":
                 getCamera(callbackContext);
@@ -292,8 +299,68 @@ public class MapboxPluginEntry extends CordovaPlugin {
 
             boolean enabled = options.optBoolean("enabled", true);
             location.setEnabled(true);
+            location.setLocationPuck(LocationcomponentUtils.createDefault2DPuck(true));
             location.setPuckBearing(PuckBearing.HEADING);
             location.setPuckBearingEnabled(enabled);
+
+            callback.success();
+        });
+    }
+
+    private void setHeadingFollowMode(JSONObject options, CallbackContext callback) {
+        cordova.getActivity().runOnUiThread(() -> {
+            if (mapView == null) {
+                callback.error("Map is not initialized.");
+                return;
+            }
+
+            boolean hasFineLocation = hasPermission(Manifest.permission.ACCESS_FINE_LOCATION);
+            boolean hasCoarseLocation = hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION);
+
+            if (!hasFineLocation && !hasCoarseLocation) {
+                callback.error("Location permission is not granted.");
+                return;
+            }
+
+            LocationComponentPlugin location =
+                mapView.getPlugin(Plugin.MAPBOX_LOCATION_COMPONENT_PLUGIN_ID);
+            ViewportPlugin viewport =
+                mapView.getPlugin(Plugin.MAPBOX_VIEWPORT_PLUGIN_ID);
+
+            if (location == null) {
+                callback.error("Location component is not available.");
+                return;
+            }
+
+            if (viewport == null) {
+                callback.error("Viewport component is not available.");
+                return;
+            }
+
+            boolean enabled = options.optBoolean("enabled", true);
+
+            if (!enabled) {
+                viewport.idle();
+                callback.success();
+                return;
+            }
+
+            location.setEnabled(true);
+            location.setLocationPuck(LocationcomponentUtils.createDefault2DPuck(true));
+            location.setPuckBearing(PuckBearing.HEADING);
+            location.setPuckBearingEnabled(true);
+
+            FollowPuckViewportStateOptions followOptions =
+                new FollowPuckViewportStateOptions.Builder()
+                    .bearing(FollowPuckViewportStateBearing.SyncWithLocationPuck.INSTANCE)
+                    .zoom(options.optDouble("zoom", mapView.getMapboxMap().getCameraState().getZoom()))
+                    .pitch(options.optDouble("pitch", mapView.getMapboxMap().getCameraState().getPitch()))
+                    .build();
+
+            viewport.transitionTo(
+                viewport.makeFollowPuckViewportState(followOptions),
+                viewport.makeImmediateViewportTransition()
+            );
 
             callback.success();
         });
