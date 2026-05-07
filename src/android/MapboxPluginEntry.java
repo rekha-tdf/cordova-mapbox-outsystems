@@ -19,8 +19,8 @@ import com.mapbox.geojson.Point;
 import com.mapbox.maps.CameraOptions;
 import com.mapbox.maps.MapView;
 import com.mapbox.maps.Style;
+import com.mapbox.maps.plugin.PuckBearing;
 import com.mapbox.maps.plugin.Plugin;
-import com.mapbox.maps.plugin.gestures.GesturesPlugin;
 import com.mapbox.maps.plugin.locationcomponent.LocationComponentPlugin;
 
 import org.apache.cordova.CallbackContext;
@@ -67,8 +67,8 @@ public class MapboxPluginEntry extends CordovaPlugin {
             case "enableUserLocation":
                 enableUserLocation(callbackContext);
                 return true;
-            case "setNorthUpMode":
-                setNorthUpMode(options, callbackContext);
+            case "setDeviceHeadingEnabled":
+                setDeviceHeadingEnabled(options, callbackContext);
                 return true;
             case "getCamera":
                 getCamera(callbackContext);
@@ -267,31 +267,33 @@ public class MapboxPluginEntry extends CordovaPlugin {
         return cordova.getActivity().checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
     }
 
-    private void setNorthUpMode(JSONObject options, CallbackContext callback) {
+    private void setDeviceHeadingEnabled(JSONObject options, CallbackContext callback) {
         cordova.getActivity().runOnUiThread(() -> {
             if (mapView == null) {
                 callback.error("Map is not initialized.");
                 return;
             }
 
-            GesturesPlugin gestures = mapView.getPlugin(Plugin.MAPBOX_GESTURES_PLUGIN_ID);
+            boolean hasFineLocation = hasPermission(Manifest.permission.ACCESS_FINE_LOCATION);
+            boolean hasCoarseLocation = hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION);
 
-            if (gestures == null) {
-                callback.error("Gestures component is not available.");
+            if (!hasFineLocation && !hasCoarseLocation) {
+                callback.error("Location permission is not granted.");
+                return;
+            }
+
+            LocationComponentPlugin location =
+                mapView.getPlugin(Plugin.MAPBOX_LOCATION_COMPONENT_PLUGIN_ID);
+
+            if (location == null) {
+                callback.error("Location component is not available.");
                 return;
             }
 
             boolean enabled = options.optBoolean("enabled", true);
-            gestures.setRotateEnabled(!enabled);
-
-            if (enabled) {
-                mapView.getMapboxMap().setCamera(new CameraOptions.Builder()
-                    .center(mapView.getMapboxMap().getCameraState().getCenter())
-                    .zoom(mapView.getMapboxMap().getCameraState().getZoom())
-                    .pitch(mapView.getMapboxMap().getCameraState().getPitch())
-                    .bearing(0.0)
-                    .build());
-            }
+            location.setEnabled(true);
+            location.setPuckBearing(PuckBearing.HEADING);
+            location.setPuckBearingEnabled(enabled);
 
             callback.success();
         });
