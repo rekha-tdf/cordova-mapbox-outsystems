@@ -61,6 +61,10 @@ module.exports = {
     return call('setDeviceHeadingEnabled', [options || {}]);
   },
 
+  setHeadingFollowMode: function (options) {
+    return call('setHeadingFollowMode', [options || {}]);
+  },
+
   addMarker: function (options) {
     return call('addMarker', [options || {}]);
   },
