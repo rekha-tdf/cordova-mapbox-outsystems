@@ -57,8 +57,8 @@ module.exports = {
     return call('enableUserLocation', []);
   },
 
-  setNorthUpMode: function (options) {
-    return call('setNorthUpMode', [options || {}]);
+  setDeviceHeadingEnabled: function (options) {
+    return call('setDeviceHeadingEnabled', [options || {}]);
   },
 
   addMarker: function (options) {
