@@ -148,6 +148,21 @@ class MapboxPlugin: CDVPlugin {
         }
     }
 
+    @objc(setCompassEnabled:)
+    func setCompassEnabled(command: CDVInvokedUrlCommand) {
+        DispatchQueue.main.async {
+            guard let mapView = self.mapView else {
+                self.sendError("Map is not initialized.", command)
+                return
+            }
+
+            let options = command.argument(at: 0) as? [String: Any] ?? [:]
+            let enabled = options["enabled"] as? Bool ?? true
+            mapView.ornaments.options.compass.visibility = enabled ? .visible : .hidden
+            self.sendSuccess(command)
+        }
+    }
+
     @objc(addMarker:)
     func addMarker(command: CDVInvokedUrlCommand) {
         DispatchQueue.main.async {
