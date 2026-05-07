@@ -5,9 +5,14 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
 import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.FrameLayout;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import com.mapbox.common.MapboxOptions;
 import com.mapbox.geojson.Point;
@@ -25,6 +30,7 @@ import org.json.JSONObject;
 public class MapboxPluginEntry extends CordovaPlugin {
     private MapView mapView;
     private FrameLayout rootView;
+    private final List<TouchRect> touchableRects = new ArrayList<>();
 
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) {
@@ -50,6 +56,9 @@ public class MapboxPluginEntry extends CordovaPlugin {
                 return true;
             case "setViewport":
                 setViewport(options, callbackContext);
+                return true;
+            case "setTouchableRects":
+                setTouchableRects(args, callbackContext);
                 return true;
             case "setCamera":
                 setCamera(options, callbackContext);
@@ -99,8 +108,10 @@ public class MapboxPluginEntry extends CordovaPlugin {
 
                 closeInternal();
 
+                boolean behindWebView = options.optBoolean("behindWebView", false);
+
                 rootView = new FrameLayout(cordova.getActivity());
-                rootView.setBackgroundColor(Color.WHITE);
+                rootView.setBackgroundColor(behindWebView ? Color.TRANSPARENT : Color.WHITE);
                 rootView.setLayoutParams(layoutParamsFromOptions(options));
 
                 mapView = new MapView(cordova.getActivity());
@@ -129,8 +140,12 @@ public class MapboxPluginEntry extends CordovaPlugin {
                     rootView.addView(closeButton);
                 }
 
-                ViewGroup decor = (ViewGroup) cordova.getActivity().getWindow().getDecorView();
-                decor.addView(rootView);
+                if (behindWebView) {
+                    addBehindWebView(rootView);
+                } else {
+                    ViewGroup decor = (ViewGroup) cordova.getActivity().getWindow().getDecorView();
+                    decor.addView(rootView);
+                }
 
                 mapView.getMapboxMap().setCamera(new CameraOptions.Builder()
                     .center(Point.fromLngLat(longitude, latitude))
@@ -157,6 +172,34 @@ public class MapboxPluginEntry extends CordovaPlugin {
 
             rootView.setLayoutParams(layoutParamsFromOptions(options));
             rootView.requestLayout();
+            callback.success();
+        });
+    }
+
+    private void setTouchableRects(JSONArray args, CallbackContext callback) {
+        cordova.getActivity().runOnUiThread(() -> {
+            touchableRects.clear();
+
+            JSONArray rects = args.optJSONArray(0);
+            if (rects == null) {
+                callback.success();
+                return;
+            }
+
+            for (int i = 0; i < rects.length(); i++) {
+                JSONObject rect = rects.optJSONObject(i);
+                if (rect == null) {
+                    continue;
+                }
+
+                touchableRects.add(new TouchRect(
+                    rect.optDouble("x", 0.0),
+                    rect.optDouble("y", 0.0),
+                    rect.optDouble("width", 0.0),
+                    rect.optDouble("height", 0.0)
+                ));
+            }
+
             callback.success();
         });
     }
@@ -264,6 +307,46 @@ public class MapboxPluginEntry extends CordovaPlugin {
 
         mapView = null;
         rootView = null;
+        touchableRects.clear();
+    }
+
+    private void addBehindWebView(View nativeView) {
+        View webViewView = webView.getView();
+        webViewView.setBackgroundColor(Color.TRANSPARENT);
+        installTouchRouter(webViewView);
+
+        if (webViewView.getParent() instanceof ViewGroup) {
+            ViewGroup parent = (ViewGroup) webViewView.getParent();
+            int webViewIndex = parent.indexOfChild(webViewView);
+            parent.addView(nativeView, Math.max(0, webViewIndex));
+            return;
+        }
+
+        ViewGroup decor = (ViewGroup) cordova.getActivity().getWindow().getDecorView();
+        decor.addView(nativeView, 0);
+    }
+
+    private void installTouchRouter(View webViewView) {
+        webViewView.setOnTouchListener((view, event) -> {
+            if (mapView == null || isInsideTouchableRect(event.getX(), event.getY())) {
+                return false;
+            }
+
+            MotionEvent mapEvent = MotionEvent.obtain(event);
+            mapView.dispatchTouchEvent(mapEvent);
+            mapEvent.recycle();
+            return true;
+        });
+    }
+
+    private boolean isInsideTouchableRect(float x, float y) {
+        for (TouchRect rect : touchableRects) {
+            if (rect.contains(x, y)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private FrameLayout.LayoutParams layoutParamsFromOptions(JSONObject options) {
@@ -290,6 +373,24 @@ public class MapboxPluginEntry extends CordovaPlugin {
 
     private int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(value, Math.max(min, max)));
+    }
+
+    private static class TouchRect {
+        private final double x;
+        private final double y;
+        private final double width;
+        private final double height;
+
+        private TouchRect(double x, double y, double width, double height) {
+            this.x = x;
+            this.y = y;
+            this.width = width;
+            this.height = height;
+        }
+
+        private boolean contains(double pointX, double pointY) {
+            return pointX >= x && pointX <= x + width && pointY >= y && pointY <= y + height;
+        }
     }
 
     @Override
