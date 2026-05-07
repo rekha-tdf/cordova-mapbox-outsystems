@@ -41,6 +41,8 @@ public class MapboxPluginEntry extends CordovaPlugin {
     private SensorEventListener headingSensorListener;
     private final float[] headingRotationMatrix = new float[9];
     private final float[] headingOrientationValues = new float[3];
+    private double lastHeadingBearing = -1.0;
+    private long lastHeadingUpdateMs = 0L;
 
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) {
@@ -360,6 +362,30 @@ public class MapboxPluginEntry extends CordovaPlugin {
                     bearing += 360.0;
                 }
 
+                long now = System.currentTimeMillis();
+                if (now - lastHeadingUpdateMs < 80L) {
+                    return;
+                }
+
+                if (lastHeadingBearing >= 0.0) {
+                    double diff = Math.abs(bearing - lastHeadingBearing);
+                    diff = Math.min(diff, 360.0 - diff);
+
+                    if (diff < 1.5) {
+                        return;
+                    }
+
+                    bearing = lastHeadingBearing + shortestBearingDelta(lastHeadingBearing, bearing) * 0.25;
+                    if (bearing < 0.0) {
+                        bearing += 360.0;
+                    } else if (bearing >= 360.0) {
+                        bearing -= 360.0;
+                    }
+                }
+
+                lastHeadingBearing = bearing;
+                lastHeadingUpdateMs = now;
+
                 final double cameraBearing = bearing;
                 cordova.getActivity().runOnUiThread(() -> {
                     if (mapView != null) {
@@ -390,6 +416,12 @@ public class MapboxPluginEntry extends CordovaPlugin {
         }
 
         headingSensorListener = null;
+        lastHeadingBearing = -1.0;
+        lastHeadingUpdateMs = 0L;
+    }
+
+    private double shortestBearingDelta(double from, double to) {
+        return (to - from + 540.0) % 360.0 - 180.0;
     }
 
     private void getCamera(CallbackContext callback) {
