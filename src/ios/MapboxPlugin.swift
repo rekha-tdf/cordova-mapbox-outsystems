@@ -1,6 +1,7 @@
 import Foundation
 import Cordova
 import CoreLocation
+import UIKit
 import MapboxMaps
 
 @objc(MapboxPlugin)
@@ -8,8 +9,6 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
     private var mapView: MapView?
     private var annotations: PointAnnotationManager?
     private var markers: [String: PointAnnotation] = [:]
-    private var waypointAnnotations: CircleAnnotationManager?
-    private var waypointMarkers: [String: CircleAnnotation] = [:]
     private var waypointSelectedCallbackId: String?
     private var markerClickCallbackId: String?
     private var waypointSelectionEnabled = false
@@ -391,8 +390,8 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
         DispatchQueue.main.async {
             let options = command.argument(at: 0) as? [String: Any] ?? [:]
             let id = options["id"] as? String ?? ""
-            self.waypointMarkers.removeValue(forKey: id)
-            self.waypointAnnotations?.annotations = Array(self.waypointMarkers.values)
+            self.markers.removeValue(forKey: id)
+            self.annotations?.annotations = Array(self.markers.values)
             self.sendSuccess(command)
         }
     }
@@ -427,7 +426,15 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
 
     private func installMapTapHandler(on mapView: MapView) {
         mapView.gestures.onMapTap.observe { [weak self] context in
-            guard let self = self, self.waypointSelectionEnabled else {
+            guard let self = self else {
+                return
+            }
+
+            if self.sendMarkerClickIfNear(context.coordinate) {
+                return
+            }
+
+            guard self.waypointSelectionEnabled else {
                 return
             }
 
@@ -450,26 +457,16 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
         }.store(in: &cancelables)
     }
 
-    private func ensureWaypointAnnotationManager() -> CircleAnnotationManager? {
-        if waypointAnnotations == nil {
-            waypointAnnotations = mapView?.annotations.makeCircleAnnotationManager()
-        }
-
-        return waypointAnnotations
-    }
-
     private func addMarkerInternal(id: String, latitude: Double, longitude: Double) {
-        guard let manager = ensureWaypointAnnotationManager() else {
+        guard var manager = annotations else {
             return
         }
 
-        var marker = CircleAnnotation(
-            centerCoordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        var marker = PointAnnotation(
+            coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
         )
-        marker.circleRadius = 8
-        marker.circleColor = StyleColor(.systemPink)
-        marker.circleStrokeColor = StyleColor(.white)
-        marker.circleStrokeWidth = 2
+        marker.image = .init(image: createWaypointMarkerImage(), name: "waypoint-marker")
+        marker.iconAnchor = .bottom
         marker.tapHandler = { [weak self, id] context in
             self?.sendKeepCallback(self?.markerClickCallbackId, payload: [
                 "type": "markerClicked",
@@ -480,15 +477,85 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
             return true
         }
 
-        waypointMarkers[id] = marker
-        manager.annotations = Array(waypointMarkers.values)
+        markers[id] = marker
+        manager.annotations = Array(markers.values)
+        annotations = manager
     }
 
     private func clearMarkersInternal() {
         markers.removeAll()
         annotations?.annotations = []
-        waypointMarkers.removeAll()
-        waypointAnnotations?.annotations = []
+    }
+
+    private func sendMarkerClickIfNear(_ coordinate: CLLocationCoordinate2D) -> Bool {
+        let tapLocation = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        var nearestId = ""
+        var nearestMarker: PointAnnotation?
+        var nearestDistance = CLLocationDistance.greatestFiniteMagnitude
+
+        for (id, marker) in markers {
+            let markerLocation = CLLocation(
+                latitude: marker.point.coordinates.latitude,
+                longitude: marker.point.coordinates.longitude
+            )
+            let distance = tapLocation.distance(from: markerLocation)
+            if distance < nearestDistance {
+                nearestDistance = distance
+                nearestId = id
+                nearestMarker = marker
+            }
+        }
+
+        guard let marker = nearestMarker, nearestDistance <= 50 else {
+            return false
+        }
+
+        sendKeepCallback(markerClickCallbackId, payload: [
+            "type": "markerClicked",
+            "id": nearestId,
+            "latitude": marker.point.coordinates.latitude,
+            "longitude": marker.point.coordinates.longitude
+        ])
+        return true
+    }
+
+    private func createWaypointMarkerImage() -> UIImage {
+        let size = CGSize(width: 72, height: 96)
+        let renderer = UIGraphicsImageRenderer(size: size)
+
+        return renderer.image { context in
+            let cg = context.cgContext
+            let centerX = size.width / 2
+            let circleCenterY: CGFloat = 30
+            let circleRadius: CGFloat = 24
+
+            cg.setFillColor(UIColor.black.withAlphaComponent(0.25).cgColor)
+            cg.fillEllipse(in: CGRect(x: centerX - 18, y: size.height - 14, width: 36, height: 8))
+
+            let path = UIBezierPath()
+            path.addArc(
+                withCenter: CGPoint(x: centerX, y: circleCenterY),
+                radius: circleRadius,
+                startAngle: 0,
+                endAngle: CGFloat.pi * 2,
+                clockwise: true
+            )
+            path.move(to: CGPoint(x: centerX - 15, y: circleCenterY + 18))
+            path.addLine(to: CGPoint(x: centerX, y: size.height - 12))
+            path.addLine(to: CGPoint(x: centerX + 15, y: circleCenterY + 18))
+            path.close()
+
+            UIColor.systemPink.setFill()
+            path.fill()
+            UIColor.white.setStroke()
+            path.lineWidth = 4
+            path.stroke()
+
+            UIColor.white.setFill()
+            UIBezierPath(
+                ovalIn: CGRect(x: centerX - 9, y: circleCenterY - 9, width: 18, height: 18)
+            ).fill()
+        }
     }
 
     @objc(getCamera:)
@@ -523,8 +590,6 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
         stopUserTracking()
         markers.removeAll()
         annotations = nil
-        waypointMarkers.removeAll()
-        waypointAnnotations = nil
         waypointSelectedCallbackId = nil
         markerClickCallbackId = nil
         waypointSelectionEnabled = false
