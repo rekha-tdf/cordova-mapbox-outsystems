@@ -61,7 +61,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
     private LocationListener userTrackingListener;
     private long lastUserTrackingUpdateMs = 0L;
     private CircleAnnotationManager circleAnnotationManager;
-    private final Map<Long, String> markerRecordIds = new HashMap<>();
+    private final Map<String, String> markerRecordIds = new HashMap<>();
     private CallbackContext waypointSelectedCallback;
     private CallbackContext markerClickCallback;
     private boolean waypointSelectionEnabled = false;
