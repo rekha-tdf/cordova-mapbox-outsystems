@@ -25,16 +25,16 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.mapbox.bindgen.Value;
 import com.mapbox.common.MapboxOptions;
+import com.mapbox.common.TileRegionLoadOptions;
 import com.mapbox.common.TileStore;
-import com.mapbox.common.Value;
-import com.mapbox.geojson.Geometry;
+import com.mapbox.common.TilesetDescriptor;
 import com.mapbox.geojson.Point;
 import com.mapbox.geojson.Polygon;
 import com.mapbox.maps.CameraOptions;
@@ -44,8 +44,6 @@ import com.mapbox.maps.OfflineManager;
 import com.mapbox.maps.ScreenCoordinate;
 import com.mapbox.maps.Style;
 import com.mapbox.maps.StylePackLoadOptions;
-import com.mapbox.maps.TileRegionLoadOptions;
-import com.mapbox.maps.TilesetDescriptor;
 import com.mapbox.maps.TilesetDescriptorOptions;
 import com.mapbox.maps.extension.style.layers.properties.generated.IconAnchor;
 import com.mapbox.maps.plugin.PuckBearing;
@@ -140,6 +138,9 @@ public class MapboxPluginEntry extends CordovaPlugin {
                 return true;
             case "showOfflineRegion":
                 showOfflineRegion(options, callbackContext);
+                return true;
+            case "deleteOfflineRegion":
+                deleteOfflineRegion(options, callbackContext);
                 return true;
             case "setWaypointSelectionEnabled":
                 setWaypointSelectionEnabled(options, callbackContext);
@@ -640,7 +641,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
 
                 StylePackLoadOptions stylePackOptions = new StylePackLoadOptions.Builder()
                     .glyphsRasterizationMode(GlyphsRasterizationMode.IDEOGRAPHS_RASTERIZED_LOCALLY)
-                    .metadata(Value.valueOf(Collections.singletonMap("regionId", Value.valueOf(regionId))))
+                    .metadata(metadataValue(regionId))
                     .acceptExpired(false)
                     .build();
 
@@ -699,7 +700,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
             TileRegionLoadOptions tileRegionOptions = new TileRegionLoadOptions.Builder()
                 .geometry(createCirclePolygon(longitude, latitude, radiusKm))
                 .descriptors(Collections.singletonList(descriptor))
-                .metadata(Value.valueOf(Collections.singletonMap("regionId", Value.valueOf(regionId))))
+                .metadata(metadataValue(regionId))
                 .acceptExpired(false)
                 .build();
 
@@ -757,6 +758,12 @@ public class MapboxPluginEntry extends CordovaPlugin {
         return Polygon.fromLngLats(Collections.singletonList(points));
     }
 
+    private Value metadataValue(String regionId) {
+        HashMap<String, Value> metadata = new HashMap<>();
+        metadata.put("regionId", Value.valueOf(regionId));
+        return Value.valueOf(metadata);
+    }
+
     private void showOfflineRegion(JSONObject options, CallbackContext callback) {
         cordova.getActivity().runOnUiThread(() -> {
             if (mapView == null) {
@@ -776,6 +783,33 @@ public class MapboxPluginEntry extends CordovaPlugin {
                 .build());
 
             callback.success();
+        });
+    }
+
+    private void deleteOfflineRegion(JSONObject options, CallbackContext callback) {
+        cordova.getThreadPool().execute(() -> {
+            try {
+                String regionId = options.optString("regionId", "");
+                String styleUrl = options.optString("styleUrl", Style.MAPBOX_STREETS);
+                boolean deleteStylePack = options.optBoolean("deleteStylePack", true);
+
+                if (regionId.trim().isEmpty()) {
+                    callback.error("regionId is required.");
+                    return;
+                }
+
+                TileStore tileStore = TileStore.create();
+                tileStore.removeTileRegion(regionId);
+
+                if (deleteStylePack) {
+                    OfflineManager offlineManager = new OfflineManager();
+                    offlineManager.removeStylePack(styleUrl);
+                }
+
+                callback.success();
+            } catch (Throwable e) {
+                callback.error(e.getMessage() == null ? "Offline region delete failed." : e.getMessage());
+            }
         });
     }
 
