@@ -77,6 +77,10 @@ module.exports = {
     return call('showOfflineRegion', [options || {}]);
   },
 
+  deleteOfflineRegion: function (options) {
+    return call('deleteOfflineRegion', [options || {}]);
+  },
+
   setWaypointSelectionEnabled: function (options) {
     return call('setWaypointSelectionEnabled', [options || {}]);
   },
