@@ -81,6 +81,10 @@ module.exports = {
     return call('deleteOfflineRegion', [options || {}]);
   },
 
+  onOfflineDownloadProgress: function (callback, errorCallback) {
+    exec(callback, errorCallback || function () {}, SERVICE, 'registerOfflineDownloadProgressCallback', []);
+  },
+
   setWaypointSelectionEnabled: function (options) {
     return call('setWaypointSelectionEnabled', [options || {}]);
   },
