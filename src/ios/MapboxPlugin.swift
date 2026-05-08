@@ -3,6 +3,7 @@ import Cordova
 import CoreLocation
 import UIKit
 import MapboxMaps
+import Turf
 
 @objc(MapboxPlugin)
 class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
@@ -404,6 +405,136 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
         }
     }
 
+    @objc(downloadOfflineRegion:)
+    func downloadOfflineRegion(command: CDVInvokedUrlCommand) {
+        DispatchQueue.main.async {
+            guard self.mapView != nil else {
+                self.sendError("Map is not initialized.", command)
+                return
+            }
+
+            let options = command.argument(at: 0) as? [String: Any] ?? [:]
+            let latitude = options["latitude"] as? Double ?? 0
+            let longitude = options["longitude"] as? Double ?? 0
+            let radiusKm = options["radiusKm"] as? Double ?? 10
+            let minZoom = options["minZoom"] as? UInt8 ?? 10
+            let maxZoom = options["maxZoom"] as? UInt8 ?? 16
+            let styleUrl = options["styleUrl"] as? String ?? StyleURI.streets.rawValue
+            let regionId = options["regionId"] as? String
+                ?? "offline-\(Int(latitude * 100000))-\(Int(longitude * 100000))"
+
+            guard let styleURI = StyleURI(rawValue: styleUrl) else {
+                self.sendError("Invalid styleUrl.", command)
+                return
+            }
+
+            let offlineManager = OfflineManager()
+            guard let stylePackOptions = StylePackLoadOptions(
+                glyphsRasterizationMode: .ideographsRasterizedLocally,
+                metadata: ["regionId": regionId],
+                acceptExpired: false
+            ) else {
+                self.sendError("Failed to create style pack options.", command)
+                return
+            }
+
+            offlineManager.loadStylePack(
+                for: styleURI,
+                loadOptions: stylePackOptions
+            ) { _ in
+            } completion: { result in
+                switch result {
+                case .success:
+                    self.downloadOfflineTiles(
+                        offlineManager: offlineManager,
+                        regionId: regionId,
+                        latitude: latitude,
+                        longitude: longitude,
+                        radiusKm: radiusKm,
+                        minZoom: minZoom,
+                        maxZoom: maxZoom,
+                        styleURI: styleURI,
+                        command: command
+                    )
+                case .failure(let error):
+                    self.sendError("Style pack download failed: \(error.localizedDescription)", command)
+                }
+            }
+        }
+    }
+
+    private func downloadOfflineTiles(
+        offlineManager: OfflineManager,
+        regionId: String,
+        latitude: Double,
+        longitude: Double,
+        radiusKm: Double,
+        minZoom: UInt8,
+        maxZoom: UInt8,
+        styleURI: StyleURI,
+        command: CDVInvokedUrlCommand
+    ) {
+        let descriptorOptions = TilesetDescriptorOptions(
+            styleURI: styleURI,
+            zoomRange: Double(minZoom)...Double(maxZoom)
+        )
+        let descriptor = offlineManager.createTilesetDescriptor(for: descriptorOptions)
+        let center = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        let polygon = Polygon(center: center, radius: radiusKm * 1000.0, vertices: 64)
+
+        guard let loadOptions = TileRegionLoadOptions(
+            geometry: polygon.geometry,
+            descriptors: [descriptor],
+            metadata: ["regionId": regionId],
+            acceptExpired: false
+        ) else {
+            sendError("Failed to create tile region options.", command)
+            return
+        }
+
+        TileStore.default.loadTileRegion(
+            forId: regionId,
+            loadOptions: loadOptions
+        ) { _ in
+        } completion: { result in
+            switch result {
+            case .success:
+                self.sendSuccess([
+                    "regionId": regionId,
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "radiusKm": radiusKm
+                ], command)
+            case .failure(let error):
+                self.sendError("Tile region download failed: \(error.localizedDescription)", command)
+            }
+        }
+    }
+
+    @objc(showOfflineRegion:)
+    func showOfflineRegion(command: CDVInvokedUrlCommand) {
+        DispatchQueue.main.async {
+            guard let mapView = self.mapView else {
+                self.sendError("Map is not initialized.", command)
+                return
+            }
+
+            let options = command.argument(at: 0) as? [String: Any] ?? [:]
+            let latitude = options["latitude"] as? Double ?? 0
+            let longitude = options["longitude"] as? Double ?? 0
+            let zoom = options["zoom"] as? Double ?? 13
+            let styleUrl = options["styleUrl"] as? String ?? StyleURI.streets.rawValue
+            let styleURI = StyleURI(rawValue: styleUrl) ?? .streets
+
+            mapView.mapboxMap.loadStyle(styleURI)
+            mapView.mapboxMap.setCamera(to: CameraOptions(
+                center: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
+                zoom: zoom
+            ))
+            self.sendSuccess(command)
+        }
+    }
+
     @objc(setWaypointSelectionEnabled:)
     func setWaypointSelectionEnabled(command: CDVInvokedUrlCommand) {
         let options = command.argument(at: 0) as? [String: Any] ?? [:]
@@ -526,11 +657,11 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
         return renderer.image { context in
             let cg = context.cgContext
             let centerX = size.width / 2
-            let circleCenterY: CGFloat = 30
-            let circleRadius: CGFloat = 24
+            let circleCenterY: CGFloat = 32
+            let circleRadius: CGFloat = 25
 
-            cg.setFillColor(UIColor.black.withAlphaComponent(0.25).cgColor)
-            cg.fillEllipse(in: CGRect(x: centerX - 18, y: size.height - 14, width: 36, height: 8))
+            cg.setFillColor(UIColor.black.withAlphaComponent(0.24).cgColor)
+            cg.fillEllipse(in: CGRect(x: centerX - 16, y: size.height - 16, width: 32, height: 8))
 
             let path = UIBezierPath()
             path.addArc(
@@ -540,21 +671,34 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
                 endAngle: CGFloat.pi * 2,
                 clockwise: true
             )
-            path.move(to: CGPoint(x: centerX - 15, y: circleCenterY + 18))
-            path.addLine(to: CGPoint(x: centerX, y: size.height - 12))
-            path.addLine(to: CGPoint(x: centerX + 15, y: circleCenterY + 18))
+            path.move(to: CGPoint(x: centerX - 14, y: circleCenterY + 19))
+            path.addQuadCurve(
+                to: CGPoint(x: centerX, y: size.height - 10),
+                controlPoint: CGPoint(x: centerX - 5, y: circleCenterY + 52)
+            )
+            path.addQuadCurve(
+                to: CGPoint(x: centerX + 14, y: circleCenterY + 19),
+                controlPoint: CGPoint(x: centerX + 5, y: circleCenterY + 52)
+            )
             path.close()
 
-            UIColor.systemPink.setFill()
+            UIColor(red: 220 / 255, green: 38 / 255, blue: 38 / 255, alpha: 1).setFill()
             path.fill()
             UIColor.white.setStroke()
-            path.lineWidth = 4
+            path.lineWidth = 3
             path.stroke()
 
             UIColor.white.setFill()
             UIBezierPath(
-                ovalIn: CGRect(x: centerX - 9, y: circleCenterY - 9, width: 18, height: 18)
+                ovalIn: CGRect(x: centerX - 10, y: circleCenterY - 10, width: 20, height: 20)
             ).fill()
+
+            UIColor.black.withAlphaComponent(0.16).setStroke()
+            let innerRing = UIBezierPath(
+                ovalIn: CGRect(x: centerX - 10, y: circleCenterY - 10, width: 20, height: 20)
+            )
+            innerRing.lineWidth = 2
+            innerRing.stroke()
         }
     }
 
