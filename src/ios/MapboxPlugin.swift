@@ -12,6 +12,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
     private var markers: [String: PointAnnotation] = [:]
     private var waypointSelectedCallbackId: String?
     private var markerClickCallbackId: String?
+    private var offlineDownloadProgressCallbackId: String?
     private var waypointSelectionEnabled = false
     private var autoAddWaypointMarker = false
     private var cancelables = Set<AnyCancelable>()
@@ -441,7 +442,12 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
             offlineManager.loadStylePack(
                 for: styleURI,
                 loadOptions: stylePackOptions
-            ) { _ in
+            ) { progress in
+                self.sendOfflineProgress(
+                    phase: "style",
+                    completed: UInt64(progress.completedResourceCount),
+                    required: UInt64(progress.requiredResourceCount)
+                )
             } completion: { result in
                 switch result {
                 case .success:
@@ -495,7 +501,12 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
         TileStore.default.loadTileRegion(
             forId: regionId,
             loadOptions: loadOptions
-        ) { _ in
+        ) { progress in
+            self.sendOfflineProgress(
+                phase: "tiles",
+                completed: UInt64(progress.completedResourceCount),
+                required: UInt64(progress.requiredResourceCount)
+            )
         } completion: { result in
             switch result {
             case .success:
@@ -574,6 +585,23 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
     func registerMarkerClickCallback(command: CDVInvokedUrlCommand) {
         markerClickCallbackId = command.callbackId
         sendNoResultKeepCallback(command)
+    }
+
+    @objc(registerOfflineDownloadProgressCallback:)
+    func registerOfflineDownloadProgressCallback(command: CDVInvokedUrlCommand) {
+        offlineDownloadProgressCallbackId = command.callbackId
+        sendNoResultKeepCallback(command)
+    }
+
+    private func sendOfflineProgress(phase: String, completed: UInt64, required: UInt64) {
+        let percent = required > 0 ? Int(round((Double(completed) * 100.0) / Double(required))) : 0
+        sendKeepCallback(offlineDownloadProgressCallbackId, payload: [
+            "type": "offlineDownloadProgress",
+            "phase": phase,
+            "completed": completed,
+            "required": required,
+            "percent": percent
+        ])
     }
 
     private func installMapTapHandler(on mapView: MapView) {
@@ -757,6 +785,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
         annotations = nil
         waypointSelectedCallbackId = nil
         markerClickCallbackId = nil
+        offlineDownloadProgressCallbackId = nil
         waypointSelectionEnabled = false
         autoAddWaypointMarker = false
         cancelables.removeAll()
