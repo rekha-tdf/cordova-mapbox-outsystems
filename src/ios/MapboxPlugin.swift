@@ -506,7 +506,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
             }
         }
 
-        guard let marker = nearestMarker, nearestDistance <= 50 else {
+        guard let marker = nearestMarker, nearestDistance <= 75 else {
             return false
         }
 
