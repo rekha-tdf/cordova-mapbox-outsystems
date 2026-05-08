@@ -78,6 +78,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
     private float rawTapDownX = 0.0f;
     private float rawTapDownY = 0.0f;
     private long rawTapDownMs = 0L;
+    private long lastMapSelectionCallbackMs = 0L;
 
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) {
@@ -637,7 +638,13 @@ public class MapboxPluginEntry extends CordovaPlugin {
     }
 
     private boolean handleMapPointSelected(Point point) {
+        long now = System.currentTimeMillis();
+        if (now - lastMapSelectionCallbackMs < 400L) {
+            return true;
+        }
+
         if (sendMarkerClickIfNear(point)) {
+            lastMapSelectionCallbackMs = now;
             return true;
         }
 
@@ -658,6 +665,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
             payload.put("latitude", point.latitude());
             payload.put("longitude", point.longitude());
             sendKeepCallback(waypointSelectedCallback, payload);
+            lastMapSelectionCallbackMs = now;
         } catch (Exception ignored) {
         }
 
@@ -758,7 +766,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
             }
         }
 
-        if (nearestPoint == null || nearestDistance > 75.0f) {
+        if (nearestPoint == null || nearestDistance > 150.0f) {
             return false;
         }
 
