@@ -535,6 +535,27 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
         }
     }
 
+    @objc(deleteOfflineRegion:)
+    func deleteOfflineRegion(command: CDVInvokedUrlCommand) {
+        let options = command.argument(at: 0) as? [String: Any] ?? [:]
+        let regionId = options["regionId"] as? String ?? ""
+        let styleUrl = options["styleUrl"] as? String ?? StyleURI.streets.rawValue
+        let deleteStylePack = options["deleteStylePack"] as? Bool ?? true
+
+        guard !regionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            sendError("regionId is required.", command)
+            return
+        }
+
+        TileStore.default.removeTileRegion(forId: regionId)
+
+        if deleteStylePack, let styleURI = StyleURI(rawValue: styleUrl) {
+            OfflineManager().removeStylePack(for: styleURI)
+        }
+
+        sendSuccess(command)
+    }
+
     @objc(setWaypointSelectionEnabled:)
     func setWaypointSelectionEnabled(command: CDVInvokedUrlCommand) {
         let options = command.argument(at: 0) as? [String: Any] ?? [:]
