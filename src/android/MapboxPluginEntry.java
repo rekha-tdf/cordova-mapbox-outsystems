@@ -68,6 +68,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
     private PointAnnotationManager pointAnnotationManager;
     private final Map<String, String> markerRecordIds = new HashMap<>();
     private final Map<String, PointAnnotation> markerAnnotationsByRecordId = new HashMap<>();
+    private final Map<String, Point> markerPointsByRecordId = new HashMap<>();
     private CallbackContext waypointSelectedCallback;
     private CallbackContext markerClickCallback;
     private boolean waypointSelectionEnabled = false;
@@ -693,16 +694,17 @@ public class MapboxPluginEntry extends CordovaPlugin {
     }
 
     private boolean sendMarkerClickIfNear(Point point) {
-        if (pointAnnotationManager == null) {
+        if (markerPointsByRecordId.isEmpty()) {
             return false;
         }
 
-        PointAnnotation nearest = null;
+        String nearestId = "";
+        Point nearestPoint = null;
         float nearestDistance = Float.MAX_VALUE;
         float[] distance = new float[1];
 
-        for (PointAnnotation annotation : pointAnnotationManager.getAnnotations()) {
-            Point markerPoint = annotation.getPoint();
+        for (Map.Entry<String, Point> entry : markerPointsByRecordId.entrySet()) {
+            Point markerPoint = entry.getValue();
             Location.distanceBetween(
                 point.latitude(),
                 point.longitude(),
@@ -713,25 +715,21 @@ public class MapboxPluginEntry extends CordovaPlugin {
 
             if (distance[0] < nearestDistance) {
                 nearestDistance = distance[0];
-                nearest = annotation;
+                nearestId = entry.getKey();
+                nearestPoint = markerPoint;
             }
         }
 
-        if (nearest == null || nearestDistance > 50.0f) {
+        if (nearestPoint == null || nearestDistance > 75.0f) {
             return false;
-        }
-
-        String recordId = markerRecordIds.get(nearest.getId());
-        if (recordId == null) {
-            recordId = "";
         }
 
         try {
             JSONObject payload = new JSONObject();
             payload.put("type", "markerClicked");
-            payload.put("id", recordId);
-            payload.put("latitude", nearest.getPoint().latitude());
-            payload.put("longitude", nearest.getPoint().longitude());
+            payload.put("id", nearestId);
+            payload.put("latitude", nearestPoint.latitude());
+            payload.put("longitude", nearestPoint.longitude());
             sendKeepCallback(markerClickCallback, payload);
         } catch (Exception ignored) {
         }
@@ -820,6 +818,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
         PointAnnotation annotation = pointAnnotationManager.create(markerOptions);
         markerRecordIds.put(annotation.getId(), id);
         markerAnnotationsByRecordId.put(id, annotation);
+        markerPointsByRecordId.put(id, Point.fromLngLat(longitude, latitude));
         return true;
     }
 
@@ -840,6 +839,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
             pointAnnotationManager.delete(annotation);
             markerRecordIds.remove(annotation.getId());
         }
+        markerPointsByRecordId.remove(id);
     }
 
     private void clearMarkers(CallbackContext callback) {
@@ -859,6 +859,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
 
         markerRecordIds.clear();
         markerAnnotationsByRecordId.clear();
+        markerPointsByRecordId.clear();
     }
 
     private Bitmap createWaypointMarkerBitmap() {
@@ -959,6 +960,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
         pointAnnotationManager = null;
         markerRecordIds.clear();
         markerAnnotationsByRecordId.clear();
+        markerPointsByRecordId.clear();
         waypointSelectedCallback = null;
         markerClickCallback = null;
         waypointSelectionEnabled = false;
