@@ -408,7 +408,10 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
 
     @objc(downloadOfflineRegion:)
     func downloadOfflineRegion(command: CDVInvokedUrlCommand) {
+        sendOfflineProgress(phase: "started", completed: 0, required: 100)
         DispatchQueue.main.async {
+            self.sendOfflineProgress(phase: "native-entered", completed: 0, required: 100)
+
             guard self.mapView != nil else {
                 self.sendError("Map is not initialized.", command)
                 return
@@ -430,6 +433,8 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
             }
 
             let offlineManager = OfflineManager()
+            self.sendOfflineProgress(phase: "style-start", completed: 0, required: 100)
+
             guard let stylePackOptions = StylePackLoadOptions(
                 glyphsRasterizationMode: .ideographsRasterizedLocally,
                 metadata: ["regionId": regionId],
@@ -451,6 +456,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
             } completion: { result in
                 switch result {
                 case .success:
+                    self.sendOfflineProgress(phase: "tiles-start", completed: 0, required: 100)
                     self.downloadOfflineTiles(
                         offlineManager: offlineManager,
                         regionId: regionId,
