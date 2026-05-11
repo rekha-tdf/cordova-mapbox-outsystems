@@ -73,6 +73,10 @@ var api = {
     return call('downloadOfflineRegion', [options || {}]);
   },
 
+  downloadOfflineRegionForRect: function (options) {
+    return call('downloadOfflineRegionForRect', [options || {}]);
+  },
+
   showOfflineRegion: function (options) {
     return call('showOfflineRegion', [options || {}]);
   },
