@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.mapbox.bindgen.Value;
+import com.mapbox.common.Cancelable;
 import com.mapbox.common.MapboxOptions;
 import com.mapbox.common.TileRegionLoadOptions;
 import com.mapbox.common.TileStore;
@@ -83,6 +84,10 @@ public class MapboxPluginEntry extends CordovaPlugin {
     private CallbackContext waypointSelectedCallback;
     private CallbackContext markerClickCallback;
     private CallbackContext offlineDownloadProgressCallback;
+    private OfflineManager activeOfflineManager;
+    private TileStore activeOfflineTileStore;
+    private Cancelable activeStylePackDownload;
+    private Cancelable activeTileRegionDownload;
     private boolean waypointSelectionEnabled = false;
     private boolean autoAddWaypointMarker = false;
     private OnMapClickListener mapClickListener;
@@ -644,7 +649,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
                     "offline-" + Math.round(latitude * 100000.0) + "-" + Math.round(longitude * 100000.0)
                 );
 
-                OfflineManager offlineManager = new OfflineManager();
+                activeOfflineManager = new OfflineManager();
                 sendOfflineProgress("style-start", 0, 100);
 
                 StylePackLoadOptions stylePackOptions = new StylePackLoadOptions.Builder()
@@ -653,7 +658,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
                     .acceptExpired(false)
                     .build();
 
-                offlineManager.loadStylePack(
+                activeStylePackDownload = activeOfflineManager.loadStylePack(
                     styleUrl,
                     stylePackOptions,
                     progress -> sendOfflineProgress("style", progress.getCompletedResourceCount(), progress.getRequiredResourceCount()),
@@ -661,7 +666,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
                         stylePack -> {
                             sendOfflineProgress("tiles-start", 0, 100);
                             downloadOfflineTiles(
-                                offlineManager,
+                                activeOfflineManager,
                                 regionId,
                                 latitude,
                                 longitude,
@@ -713,8 +718,8 @@ public class MapboxPluginEntry extends CordovaPlugin {
                 .acceptExpired(false)
                 .build();
 
-            TileStore tileStore = TileStore.create();
-            tileStore.loadTileRegion(
+            activeOfflineTileStore = TileStore.create();
+            activeTileRegionDownload = activeOfflineTileStore.loadTileRegion(
                 regionId,
                 tileRegionOptions,
                 progress -> sendOfflineProgress("tiles", progress.getCompletedResourceCount(), progress.getRequiredResourceCount()),
@@ -1259,6 +1264,16 @@ public class MapboxPluginEntry extends CordovaPlugin {
         waypointSelectedCallback = null;
         markerClickCallback = null;
         offlineDownloadProgressCallback = null;
+        if (activeStylePackDownload != null) {
+            activeStylePackDownload.cancel();
+        }
+        if (activeTileRegionDownload != null) {
+            activeTileRegionDownload.cancel();
+        }
+        activeStylePackDownload = null;
+        activeTileRegionDownload = null;
+        activeOfflineManager = null;
+        activeOfflineTileStore = null;
         waypointSelectionEnabled = false;
         autoAddWaypointMarker = false;
         mapClickListener = null;
