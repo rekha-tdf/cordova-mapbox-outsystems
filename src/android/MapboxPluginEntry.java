@@ -623,8 +623,11 @@ public class MapboxPluginEntry extends CordovaPlugin {
     }
 
     private void downloadOfflineRegion(JSONObject options, CallbackContext callback) {
+        sendOfflineProgress("started", 0, 100);
         cordova.getThreadPool().execute(() -> {
             try {
+                sendOfflineProgress("native-entered", 0, 100);
+
                 if (mapView == null) {
                     callback.error("Map is not initialized.");
                     return;
@@ -642,6 +645,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
                 );
 
                 OfflineManager offlineManager = new OfflineManager();
+                sendOfflineProgress("style-start", 0, 100);
 
                 StylePackLoadOptions stylePackOptions = new StylePackLoadOptions.Builder()
                     .glyphsRasterizationMode(GlyphsRasterizationMode.IDEOGRAPHS_RASTERIZED_LOCALLY)
@@ -655,6 +659,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
                     progress -> sendOfflineProgress("style", progress.getCompletedResourceCount(), progress.getRequiredResourceCount()),
                     expectedStylePack -> expectedStylePack.fold(
                         stylePack -> {
+                            sendOfflineProgress("tiles-start", 0, 100);
                             downloadOfflineTiles(
                                 offlineManager,
                                 regionId,
