@@ -663,6 +663,10 @@ public class MapboxPluginEntry extends CordovaPlugin {
                     stylePackOptions,
                     progress -> sendOfflineProgress("style", progress.getCompletedResourceCount(), progress.getRequiredResourceCount()),
                     expectedStylePack -> expectedStylePack.fold(
+                        error -> {
+                            callback.error("Style pack download failed: " + error.toString());
+                            return null;
+                        },
                         stylePack -> {
                             sendOfflineProgress("tiles-start", 0, 100);
                             downloadOfflineTiles(
@@ -676,10 +680,6 @@ public class MapboxPluginEntry extends CordovaPlugin {
                                 styleUrl,
                                 callback
                             );
-                            return null;
-                        },
-                        error -> {
-                            callback.error("Style pack download failed: " + error.toString());
                             return null;
                         }
                     )
@@ -725,6 +725,10 @@ public class MapboxPluginEntry extends CordovaPlugin {
                     tileRegionOptions,
                     progress -> sendOfflineProgress("tiles", progress.getCompletedResourceCount(), progress.getRequiredResourceCount()),
                     expectedTileRegion -> expectedTileRegion.fold(
+                        error -> {
+                            callback.error("Tile region download failed: " + error.toString());
+                            return null;
+                        },
                         tileRegion -> {
                             try {
                                 JSONObject result = new JSONObject();
@@ -736,10 +740,6 @@ public class MapboxPluginEntry extends CordovaPlugin {
                             } catch (Exception e) {
                                 callback.error(e.getMessage());
                             }
-                            return null;
-                        },
-                        error -> {
-                            callback.error("Tile region download failed: " + error.toString());
                             return null;
                         }
                     )
