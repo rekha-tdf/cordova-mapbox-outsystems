@@ -422,8 +422,8 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
             let latitude = options["latitude"] as? Double ?? 0
             let longitude = options["longitude"] as? Double ?? 0
             let radiusKm = options["radiusKm"] as? Double ?? 10
-            let minZoom = options["minZoom"] as? UInt8 ?? 10
-            let maxZoom = options["maxZoom"] as? UInt8 ?? 16
+            let minZoom = self.uint8Option(options["minZoom"], defaultValue: 10)
+            let maxZoom = self.uint8Option(options["maxZoom"], defaultValue: 16)
             let styleUrl = options["styleUrl"] as? String ?? StyleURI.streets.rawValue
             let regionId = options["regionId"] as? String
                 ?? "offline-\(Int(latitude * 100000))-\(Int(longitude * 100000))"
@@ -463,8 +463,8 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
             let y = options["y"] as? Double ?? 0
             let width = options["width"] as? Double ?? 1
             let height = options["height"] as? Double ?? 1
-            let minZoom = options["minZoom"] as? UInt8 ?? 10
-            let maxZoom = options["maxZoom"] as? UInt8 ?? 16
+            let minZoom = self.uint8Option(options["minZoom"], defaultValue: 10)
+            let maxZoom = self.uint8Option(options["maxZoom"], defaultValue: 16)
             let styleUrl = options["styleUrl"] as? String ?? StyleURI.streets.rawValue
             let regionId = options["regionId"] as? String ?? "offline-rect-\(Int(Date().timeIntervalSince1970 * 1000))"
 
@@ -569,7 +569,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
     ) {
         let descriptorOptions = TilesetDescriptorOptions(
             styleURI: styleURI,
-            zoomRange: Double(minZoom)...Double(maxZoom)
+            zoomRange: minZoom...maxZoom
         )
         let descriptor = offlineManager.createTilesetDescriptor(for: descriptorOptions)
         let center = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -905,6 +905,26 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
         let width = options["width"] as? Double ?? Double(webView.bounds.width)
         let height = options["height"] as? Double ?? Double(webView.bounds.height)
         return CGRect(x: x, y: y, width: max(width, 1), height: max(height, 1))
+    }
+
+    private func uint8Option(_ value: Any?, defaultValue: UInt8) -> UInt8 {
+        if let value = value as? UInt8 {
+            return value
+        }
+
+        if let value = value as? Int {
+            return UInt8(clamping: value)
+        }
+
+        if let value = value as? Double {
+            return UInt8(clamping: Int(value))
+        }
+
+        if let value = value as? NSNumber {
+            return UInt8(clamping: value.intValue)
+        }
+
+        return defaultValue
     }
 
     private func makeWebViewTransparent() {
