@@ -69,6 +69,10 @@ var api = {
     return call('setUserTrackingEnabled', [options || {}]);
   },
 
+  moveToCurrentLocation: function (options) {
+    return call('moveToCurrentLocation', [options || {}]);
+  },
+
   downloadOfflineRegion: function (options) {
     return call('downloadOfflineRegion', [options || {}]);
   },
