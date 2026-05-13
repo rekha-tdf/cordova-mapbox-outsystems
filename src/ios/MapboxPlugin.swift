@@ -49,11 +49,11 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
                 return
             }
 
-            let latitude = options["latitude"] as? Double ?? 0
-            let longitude = options["longitude"] as? Double ?? 0
-            let zoom = options["zoom"] as? Double ?? 12
-            let bearing = options["bearing"] as? Double ?? 0
-            let pitch = options["pitch"] as? Double ?? 0
+            let latitude = self.doubleOption(options["latitude"], defaultValue: 0)
+            let longitude = self.doubleOption(options["longitude"], defaultValue: 0)
+            let zoom = self.doubleOption(options["zoom"], defaultValue: 12)
+            let bearing = self.doubleOption(options["bearing"], defaultValue: 0)
+            let pitch = self.doubleOption(options["pitch"], defaultValue: 0)
             let styleUrl = options["styleUrl"] as? String
             let behindWebView = options["behindWebView"] as? Bool ?? false
 
@@ -118,11 +118,11 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
             }
 
             let options = command.argument(at: 0) as? [String: Any] ?? [:]
-            let latitude = options["latitude"] as? Double ?? mapView.cameraState.center.latitude
-            let longitude = options["longitude"] as? Double ?? mapView.cameraState.center.longitude
-            let zoom = options["zoom"] as? Double ?? mapView.cameraState.zoom
-            let bearing = options["bearing"] as? Double ?? mapView.cameraState.bearing
-            let pitch = options["pitch"] as? Double ?? mapView.cameraState.pitch
+            let latitude = self.doubleOption(options["latitude"], defaultValue: mapView.cameraState.center.latitude)
+            let longitude = self.doubleOption(options["longitude"], defaultValue: mapView.cameraState.center.longitude)
+            let zoom = self.doubleOption(options["zoom"], defaultValue: mapView.cameraState.zoom)
+            let bearing = self.doubleOption(options["bearing"], defaultValue: mapView.cameraState.bearing)
+            let pitch = self.doubleOption(options["pitch"], defaultValue: mapView.cameraState.pitch)
 
             mapView.mapboxMap.setCamera(to: CameraOptions(
                 center: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
@@ -374,8 +374,8 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
             let id = (options["id"] as? String)?.isEmpty == false
                 ? options["id"] as! String
                 : String(Int(Date().timeIntervalSince1970 * 1000))
-            let latitude = options["latitude"] as? Double ?? 0
-            let longitude = options["longitude"] as? Double ?? 0
+            let latitude = self.doubleOption(options["latitude"], defaultValue: 0)
+            let longitude = self.doubleOption(options["longitude"], defaultValue: 0)
 
             self.addMarkerInternal(id: id, latitude: latitude, longitude: longitude)
             self.sendSuccess(["id": id], command)
@@ -398,8 +398,8 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
             let markers = options["markers"] as? [[String: Any]] ?? []
             for (index, marker) in markers.enumerated() {
                 let id = marker["id"] as? String ?? String(index)
-                let latitude = marker["latitude"] as? Double ?? 0
-                let longitude = marker["longitude"] as? Double ?? 0
+                let latitude = self.doubleOption(marker["latitude"], defaultValue: 0)
+                let longitude = self.doubleOption(marker["longitude"], defaultValue: 0)
                 self.addMarkerInternal(id: id, latitude: latitude, longitude: longitude)
             }
 
@@ -438,9 +438,9 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
             }
 
             let options = command.argument(at: 0) as? [String: Any] ?? [:]
-            let latitude = options["latitude"] as? Double ?? 0
-            let longitude = options["longitude"] as? Double ?? 0
-            let radiusKm = options["radiusKm"] as? Double ?? 10
+            let latitude = self.doubleOption(options["latitude"], defaultValue: 0)
+            let longitude = self.doubleOption(options["longitude"], defaultValue: 0)
+            let radiusKm = self.doubleOption(options["radiusKm"], defaultValue: 10)
             let minZoom = self.uint8Option(options["minZoom"], defaultValue: 10)
             let maxZoom = self.uint8Option(options["maxZoom"], defaultValue: 16)
             let styleUrl = options["styleUrl"] as? String ?? StyleURI.streets.rawValue
@@ -478,10 +478,10 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
             }
 
             let options = command.argument(at: 0) as? [String: Any] ?? [:]
-            let x = options["x"] as? Double ?? 0
-            let y = options["y"] as? Double ?? 0
-            let width = options["width"] as? Double ?? 1
-            let height = options["height"] as? Double ?? 1
+            let x = self.doubleOption(options["x"], defaultValue: 0)
+            let y = self.doubleOption(options["y"], defaultValue: 0)
+            let width = self.doubleOption(options["width"], defaultValue: 1)
+            let height = self.doubleOption(options["height"], defaultValue: 1)
             let minZoom = self.uint8Option(options["minZoom"], defaultValue: 10)
             let maxZoom = self.uint8Option(options["maxZoom"], defaultValue: 16)
             let styleUrl = options["styleUrl"] as? String ?? StyleURI.streets.rawValue
@@ -638,9 +638,9 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
             }
 
             let options = command.argument(at: 0) as? [String: Any] ?? [:]
-            let latitude = options["latitude"] as? Double ?? 0
-            let longitude = options["longitude"] as? Double ?? 0
-            let zoom = options["zoom"] as? Double ?? 13
+            let latitude = self.doubleOption(options["latitude"], defaultValue: 0)
+            let longitude = self.doubleOption(options["longitude"], defaultValue: 0)
+            let zoom = self.doubleOption(options["zoom"], defaultValue: 13)
             let styleUrl = options["styleUrl"] as? String ?? StyleURI.streets.rawValue
             let styleURI = StyleURI(rawValue: styleUrl) ?? .streets
 
@@ -920,10 +920,10 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
     }
 
     private func frameFromOptions(_ options: [String: Any]) -> CGRect {
-        var x = options["x"] as? Double ?? 0
-        var y = options["y"] as? Double ?? 0
-        var width = options["width"] as? Double ?? Double(webView.bounds.width)
-        var height = options["height"] as? Double ?? Double(webView.bounds.height)
+        var x = doubleOption(options["x"], defaultValue: 0)
+        var y = doubleOption(options["y"], defaultValue: 0)
+        var width = doubleOption(options["width"], defaultValue: Double(webView.bounds.width))
+        var height = doubleOption(options["height"], defaultValue: Double(webView.bounds.height))
 
         let scale = Double(UIScreen.main.scale)
         let bounds = webView.bounds
@@ -955,6 +955,30 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
 
         if let value = value as? NSNumber {
             return UInt8(clamping: value.intValue)
+        }
+
+        return defaultValue
+    }
+
+    private func doubleOption(_ value: Any?, defaultValue: Double) -> Double {
+        if let value = value as? Double {
+            return value
+        }
+
+        if let value = value as? Float {
+            return Double(value)
+        }
+
+        if let value = value as? Int {
+            return Double(value)
+        }
+
+        if let value = value as? NSNumber {
+            return value.doubleValue
+        }
+
+        if let value = value as? String, let parsedValue = Double(value) {
+            return parsedValue
         }
 
         return defaultValue
