@@ -990,20 +990,16 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate {
             return
         }
 
-        let point = recognizer.location(in: overlay)
-
-        switch recognizer.state {
-        case .began:
-            mapView.mapboxMap.dragStart(for: point)
-        case .changed:
+        if recognizer.state == .changed {
             let translation = recognizer.translation(in: overlay)
-            let fromPoint = CGPoint(x: point.x - translation.x, y: point.y - translation.y)
-            let camera = mapView.mapboxMap.dragCameraOptions(from: fromPoint, to: point)
-            mapView.mapboxMap.setCamera(to: camera)
-        case .ended, .cancelled, .failed:
-            mapView.mapboxMap.dragEnd()
-        default:
-            break
+            let centerPoint = CGPoint(
+                x: mapView.bounds.midX - translation.x,
+                y: mapView.bounds.midY - translation.y
+            )
+            let center = mapView.mapboxMap.coordinate(for: centerPoint)
+
+            mapView.mapboxMap.setCamera(to: CameraOptions(center: center))
+            recognizer.setTranslation(.zero, in: overlay)
         }
     }
 
