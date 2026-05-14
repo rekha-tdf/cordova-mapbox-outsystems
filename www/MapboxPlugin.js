@@ -123,6 +123,27 @@ var api = {
     return call('clearMarkers', []);
   },
 
+  loadBoundaries: function (boundaries, options) {
+    options = options || {};
+    if (typeof boundaries === 'string') {
+      try {
+        boundaries = JSON.parse(boundaries);
+      } catch (error) {
+        boundaries = [];
+      }
+    }
+    options.boundaries = boundaries || [];
+    return call('loadBoundaries', [options]);
+  },
+
+  setBoundaryVisibility: function (options) {
+    return call('setBoundaryVisibility', [options || {}]);
+  },
+
+  clearBoundaries: function () {
+    return call('clearBoundaries', []);
+  },
+
   getCamera: function () {
     return call('getCamera', []);
   },
