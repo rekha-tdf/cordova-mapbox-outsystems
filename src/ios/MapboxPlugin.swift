@@ -10,6 +10,8 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
     private var mapTouchOverlay: MapTouchOverlayView?
     private var annotations: PointAnnotationManager?
     private var markers: [String: PointAnnotation] = [:]
+    private var boundaryAnnotationManager: PolygonAnnotationManager?
+    private var boundaryAnnotations: [PolygonAnnotation] = []
     private var waypointSelectedCallbackId: String?
     private var markerClickCallbackId: String?
     private var offlineDownloadProgressCallbackId: String?
@@ -25,6 +27,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
     private var lastHeadingUpdate: TimeInterval = 0
     private var isUserTrackingEnabled = false
     private var lastUserTrackingUpdate: TimeInterval = 0
+    private var boundaryVisible = true
 
     @objc(ping:)
     func ping(command: CDVInvokedUrlCommand) {
@@ -499,6 +502,41 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         }
     }
 
+    @objc(loadBoundaries:)
+    func loadBoundaries(command: CDVInvokedUrlCommand) {
+        DispatchQueue.main.async {
+            guard self.mapView != nil else {
+                self.sendError("Map is not initialized.", command)
+                return
+            }
+
+            let options = command.argument(at: 0) as? [String: Any] ?? [:]
+            let boundaries = options["boundaries"] as? [[String: Any]] ?? []
+            self.boundaryVisible = options["visible"] as? Bool ?? true
+            self.boundaryAnnotations = self.boundaryAnnotationsFromOptions(options, boundaries: boundaries)
+            self.applyBoundaryVisibility()
+            self.sendSuccess(["count": self.boundaryAnnotations.count], command)
+        }
+    }
+
+    @objc(setBoundaryVisibility:)
+    func setBoundaryVisibility(command: CDVInvokedUrlCommand) {
+        DispatchQueue.main.async {
+            let options = command.argument(at: 0) as? [String: Any] ?? [:]
+            self.boundaryVisible = options["visible"] as? Bool ?? true
+            self.applyBoundaryVisibility()
+            self.sendSuccess(command)
+        }
+    }
+
+    @objc(clearBoundaries:)
+    func clearBoundaries(command: CDVInvokedUrlCommand) {
+        DispatchQueue.main.async {
+            self.clearBoundariesInternal()
+            self.sendSuccess(command)
+        }
+    }
+
     @objc(downloadOfflineRegion:)
     func downloadOfflineRegion(command: CDVInvokedUrlCommand) {
         sendOfflineProgress(phase: "started", completed: 0, required: 100)
@@ -847,6 +885,60 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         annotations?.annotations = []
     }
 
+    private func boundaryAnnotationsFromOptions(_ options: [String: Any], boundaries: [[String: Any]]) -> [PolygonAnnotation] {
+        let fillColor = colorOption(options["fillColor"], defaultColor: UIColor(red: 46 / 255, green: 125 / 255, blue: 50 / 255, alpha: 1))
+        let fillOpacity = doubleOption(options["fillOpacity"], defaultValue: 0.18)
+        let outlineColor = colorOption(options["lineColor"], defaultColor: UIColor(red: 27 / 255, green: 94 / 255, blue: 32 / 255, alpha: 1))
+
+        return boundaries.compactMap { boundary in
+            guard let geometry = boundary["geometry"] as? [[String: Any]] else {
+                return nil
+            }
+
+            var ring = geometry.compactMap { point -> CLLocationCoordinate2D? in
+                let latitude = doubleOption(point["lat"] ?? point["latitude"], defaultValue: Double.nan)
+                let longitude = doubleOption(point["lon"] ?? point["lng"] ?? point["longitude"], defaultValue: Double.nan)
+                guard latitude.isFinite, longitude.isFinite else {
+                    return nil
+                }
+                return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+            }
+
+            guard ring.count >= 3 else {
+                return nil
+            }
+
+            if let first = ring.first, let last = ring.last,
+               first.latitude != last.latitude || first.longitude != last.longitude {
+                ring.append(first)
+            }
+
+            var annotation = PolygonAnnotation(polygon: Polygon([ring]))
+            annotation.fillColor = StyleColor(fillColor)
+            annotation.fillOpacity = fillOpacity
+            annotation.fillOutlineColor = StyleColor(outlineColor)
+            return annotation
+        }
+    }
+
+    private func applyBoundaryVisibility() {
+        guard let mapView = mapView else {
+            return
+        }
+
+        if boundaryAnnotationManager == nil {
+            boundaryAnnotationManager = mapView.annotations.makePolygonAnnotationManager()
+        }
+
+        boundaryAnnotationManager?.annotations = boundaryVisible ? boundaryAnnotations : []
+    }
+
+    private func clearBoundariesInternal() {
+        boundaryAnnotations.removeAll()
+        boundaryAnnotationManager?.annotations = []
+        boundaryVisible = true
+    }
+
     private func sendMarkerClickIfNear(_ coordinate: CLLocationCoordinate2D) -> Bool {
         let tapLocation = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
         var nearestId = ""
@@ -963,6 +1055,8 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         stopUserTracking()
         markers.removeAll()
         annotations = nil
+        clearBoundariesInternal()
+        boundaryAnnotationManager = nil
         waypointSelectedCallbackId = nil
         markerClickCallbackId = nil
         offlineDownloadProgressCallbackId = nil
@@ -1185,6 +1279,40 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         }
 
         return defaultValue
+    }
+
+    private func colorOption(_ value: Any?, defaultColor: UIColor) -> UIColor {
+        guard let rawValue = value as? String else {
+            return defaultColor
+        }
+
+        var hex = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if hex.hasPrefix("#") {
+            hex.removeFirst()
+        }
+
+        guard hex.count == 6 || hex.count == 8, let colorValue = UInt64(hex, radix: 16) else {
+            return defaultColor
+        }
+
+        let red: CGFloat
+        let green: CGFloat
+        let blue: CGFloat
+        let alpha: CGFloat
+
+        if hex.count == 8 {
+            red = CGFloat((colorValue & 0xff000000) >> 24) / 255
+            green = CGFloat((colorValue & 0x00ff0000) >> 16) / 255
+            blue = CGFloat((colorValue & 0x0000ff00) >> 8) / 255
+            alpha = CGFloat(colorValue & 0x000000ff) / 255
+        } else {
+            red = CGFloat((colorValue & 0xff0000) >> 16) / 255
+            green = CGFloat((colorValue & 0x00ff00) >> 8) / 255
+            blue = CGFloat(colorValue & 0x0000ff) / 255
+            alpha = 1
+        }
+
+        return UIColor(red: red, green: green, blue: blue, alpha: alpha)
     }
 
     private func makeWebViewTransparent() {
