@@ -54,6 +54,10 @@ import com.mapbox.maps.plugin.annotation.generated.PointAnnotation;
 import com.mapbox.maps.plugin.annotation.generated.PointAnnotationManager;
 import com.mapbox.maps.plugin.annotation.generated.PointAnnotationManagerKt;
 import com.mapbox.maps.plugin.annotation.generated.PointAnnotationOptions;
+import com.mapbox.maps.plugin.annotation.generated.PolygonAnnotation;
+import com.mapbox.maps.plugin.annotation.generated.PolygonAnnotationManager;
+import com.mapbox.maps.plugin.annotation.generated.PolygonAnnotationManagerKt;
+import com.mapbox.maps.plugin.annotation.generated.PolygonAnnotationOptions;
 import com.mapbox.maps.plugin.gestures.GesturesPlugin;
 import com.mapbox.maps.plugin.gestures.OnMapClickListener;
 import com.mapbox.maps.plugin.locationcomponent.LocationComponentPlugin;
@@ -78,6 +82,9 @@ public class MapboxPluginEntry extends CordovaPlugin {
     private LocationListener userTrackingListener;
     private long lastUserTrackingUpdateMs = 0L;
     private PointAnnotationManager pointAnnotationManager;
+    private PolygonAnnotationManager boundaryAnnotationManager;
+    private final List<PolygonAnnotationOptions> boundaryAnnotationOptions = new ArrayList<>();
+    private final List<PolygonAnnotation> boundaryAnnotations = new ArrayList<>();
     private final Map<String, String> markerRecordIds = new HashMap<>();
     private final Map<String, PointAnnotation> markerAnnotationsByRecordId = new HashMap<>();
     private final Map<String, Point> markerPointsByRecordId = new HashMap<>();
@@ -95,6 +102,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
     private float rawTapDownY = 0.0f;
     private long rawTapDownMs = 0L;
     private long lastMapSelectionCallbackMs = 0L;
+    private boolean boundaryVisible = true;
 
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) {
@@ -177,6 +185,15 @@ public class MapboxPluginEntry extends CordovaPlugin {
                 return true;
             case "clearMarkers":
                 clearMarkers(callbackContext);
+                return true;
+            case "loadBoundaries":
+                loadBoundaries(options, callbackContext);
+                return true;
+            case "setBoundaryVisibility":
+                setBoundaryVisibility(options, callbackContext);
+                return true;
+            case "clearBoundaries":
+                clearBoundaries(callbackContext);
                 return true;
             case "close":
                 close(callbackContext);
@@ -1076,6 +1093,24 @@ public class MapboxPluginEntry extends CordovaPlugin {
         return true;
     }
 
+    private boolean ensureBoundaryAnnotationManager() {
+        if (mapView == null) {
+            return false;
+        }
+
+        if (boundaryAnnotationManager != null) {
+            return true;
+        }
+
+        AnnotationPlugin annotationPlugin = mapView.getPlugin(Plugin.MAPBOX_ANNOTATION_PLUGIN_ID);
+        if (annotationPlugin == null) {
+            return false;
+        }
+
+        boundaryAnnotationManager = PolygonAnnotationManagerKt.createPolygonAnnotationManager(annotationPlugin, null);
+        return true;
+    }
+
     private boolean sendMarkerClickIfNear(Point point) {
         if (markerPointsByRecordId.isEmpty()) {
             return false;
@@ -1245,6 +1280,146 @@ public class MapboxPluginEntry extends CordovaPlugin {
         markerPointsByRecordId.clear();
     }
 
+    private void loadBoundaries(JSONObject options, CallbackContext callback) {
+        cordova.getActivity().runOnUiThread(() -> {
+            if (mapView == null) {
+                callback.error("Map is not initialized.");
+                return;
+            }
+
+            boundaryVisible = options.optBoolean("visible", true);
+            boundaryAnnotationOptions.clear();
+            clearBoundaryAnnotations();
+
+            JSONArray boundaries = options.optJSONArray("boundaries");
+            if (boundaries != null) {
+                String fillColor = options.optString("fillColor", "#2E7D32");
+                double fillOpacity = options.optDouble("fillOpacity", 0.18);
+                String lineColor = options.optString("lineColor", "#1B5E20");
+
+                for (int i = 0; i < boundaries.length(); i++) {
+                    JSONObject boundary = boundaries.optJSONObject(i);
+                    PolygonAnnotationOptions boundaryOptions = boundaryOptionsFromJson(boundary, fillColor, fillOpacity, lineColor);
+                    if (boundaryOptions != null) {
+                        boundaryAnnotationOptions.add(boundaryOptions);
+                    }
+                }
+            }
+
+            applyBoundaryVisibility();
+
+            try {
+                JSONObject result = new JSONObject();
+                result.put("count", boundaryAnnotationOptions.size());
+                callback.success(result);
+            } catch (Exception e) {
+                callback.error(e.getMessage());
+            }
+        });
+    }
+
+    private void setBoundaryVisibility(JSONObject options, CallbackContext callback) {
+        cordova.getActivity().runOnUiThread(() -> {
+            boundaryVisible = options.optBoolean("visible", true);
+            applyBoundaryVisibility();
+            callback.success();
+        });
+    }
+
+    private void clearBoundaries(CallbackContext callback) {
+        cordova.getActivity().runOnUiThread(() -> {
+            clearBoundariesInternal();
+            callback.success();
+        });
+    }
+
+    private PolygonAnnotationOptions boundaryOptionsFromJson(JSONObject boundary, String fillColor, double fillOpacity, String lineColor) {
+        if (boundary == null) {
+            return null;
+        }
+
+        JSONArray geometry = boundary.optJSONArray("geometry");
+        if (geometry == null) {
+            return null;
+        }
+
+        List<Point> ring = new ArrayList<>();
+        for (int i = 0; i < geometry.length(); i++) {
+            JSONObject coordinate = geometry.optJSONObject(i);
+            if (coordinate == null) {
+                continue;
+            }
+
+            double latitude = readFiniteDouble(coordinate, "lat", "latitude");
+            double longitude = readFiniteDouble(coordinate, "lon", "lng", "longitude");
+            if (!Double.isNaN(latitude) && !Double.isNaN(longitude)) {
+                ring.add(Point.fromLngLat(longitude, latitude));
+            }
+        }
+
+        if (ring.size() < 3) {
+            return null;
+        }
+
+        Point firstPoint = ring.get(0);
+        Point lastPoint = ring.get(ring.size() - 1);
+        if (firstPoint.latitude() != lastPoint.latitude() || firstPoint.longitude() != lastPoint.longitude()) {
+            ring.add(firstPoint);
+        }
+
+        return new PolygonAnnotationOptions()
+            .withPoints(Collections.singletonList(ring))
+            .withFillColor(fillColor)
+            .withFillOpacity(fillOpacity)
+            .withFillOutlineColor(lineColor);
+    }
+
+    private double readFiniteDouble(JSONObject object, String... keys) {
+        for (String key : keys) {
+            if (!object.has(key)) {
+                continue;
+            }
+
+            double value = object.optDouble(key, Double.NaN);
+            if (!Double.isNaN(value) && !Double.isInfinite(value)) {
+                return value;
+            }
+        }
+
+        return Double.NaN;
+    }
+
+    private void applyBoundaryVisibility() {
+        if (!boundaryVisible) {
+            clearBoundaryAnnotations();
+            return;
+        }
+
+        if (!ensureBoundaryAnnotationManager()) {
+            return;
+        }
+
+        clearBoundaryAnnotations();
+        for (PolygonAnnotationOptions options : boundaryAnnotationOptions) {
+            boundaryAnnotations.add(boundaryAnnotationManager.create(options));
+        }
+    }
+
+    private void clearBoundaryAnnotations() {
+        if (boundaryAnnotationManager != null) {
+            for (PolygonAnnotation annotation : new ArrayList<>(boundaryAnnotations)) {
+                boundaryAnnotationManager.delete(annotation);
+            }
+        }
+        boundaryAnnotations.clear();
+    }
+
+    private void clearBoundariesInternal() {
+        boundaryAnnotationOptions.clear();
+        clearBoundaryAnnotations();
+        boundaryVisible = true;
+    }
+
     private Bitmap createWaypointMarkerBitmap() {
         int width = 72;
         int height = 96;
@@ -1347,6 +1522,10 @@ public class MapboxPluginEntry extends CordovaPlugin {
         mapView = null;
         rootView = null;
         pointAnnotationManager = null;
+        boundaryAnnotationManager = null;
+        boundaryAnnotationOptions.clear();
+        boundaryAnnotations.clear();
+        boundaryVisible = true;
         markerRecordIds.clear();
         markerAnnotationsByRecordId.clear();
         markerPointsByRecordId.clear();
