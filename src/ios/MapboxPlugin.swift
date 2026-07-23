@@ -55,6 +55,12 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
 
             let latitude = self.doubleOption(options["latitude"], defaultValue: 0)
             let longitude = self.doubleOption(options["longitude"], defaultValue: 0)
+
+            guard self.isValidLatitude(latitude), self.isValidLongitude(longitude) else {
+                self.sendError("Invalid coordinates: latitude must be in [-90, 90], longitude in [-180, 180].", command)
+                return
+            }
+
             let zoom = self.doubleOption(options["zoom"], defaultValue: 12)
             let bearing = self.doubleOption(options["bearing"], defaultValue: 0)
             let pitch = self.doubleOption(options["pitch"], defaultValue: 0)
@@ -125,6 +131,12 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
             let options = command.argument(at: 0) as? [String: Any] ?? [:]
             let latitude = self.doubleOption(options["latitude"], defaultValue: mapView.cameraState.center.latitude)
             let longitude = self.doubleOption(options["longitude"], defaultValue: mapView.cameraState.center.longitude)
+
+            guard self.isValidLatitude(latitude), self.isValidLongitude(longitude) else {
+                self.sendError("Invalid coordinates: latitude must be in [-90, 90], longitude in [-180, 180].", command)
+                return
+            }
+
             let zoom = self.doubleOption(options["zoom"], defaultValue: mapView.cameraState.zoom)
             let bearing = self.doubleOption(options["bearing"], defaultValue: mapView.cameraState.bearing)
             let pitch = self.doubleOption(options["pitch"], defaultValue: mapView.cameraState.pitch)
@@ -451,6 +463,11 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
             let latitude = self.doubleOption(options["latitude"], defaultValue: 0)
             let longitude = self.doubleOption(options["longitude"], defaultValue: 0)
 
+            guard self.isValidLatitude(latitude), self.isValidLongitude(longitude) else {
+                self.sendError("Invalid coordinates: latitude must be in [-90, 90], longitude in [-180, 180].", command)
+                return
+            }
+
             self.addMarkerInternal(id: id, latitude: latitude, longitude: longitude)
             self.sendSuccess(["id": id], command)
         }
@@ -474,6 +491,9 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
                 let id = marker["id"] as? String ?? String(index)
                 let latitude = self.doubleOption(marker["latitude"], defaultValue: 0)
                 let longitude = self.doubleOption(marker["longitude"], defaultValue: 0)
+                guard self.isValidLatitude(latitude), self.isValidLongitude(longitude) else {
+                    continue
+                }
                 self.addMarkerInternal(id: id, latitude: latitude, longitude: longitude)
             }
 
@@ -549,6 +569,12 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
             let options = command.argument(at: 0) as? [String: Any] ?? [:]
             let latitude = self.doubleOption(options["latitude"], defaultValue: 0)
             let longitude = self.doubleOption(options["longitude"], defaultValue: 0)
+
+            guard self.isValidLatitude(latitude), self.isValidLongitude(longitude) else {
+                self.sendError("Invalid coordinates: latitude must be in [-90, 90], longitude in [-180, 180].", command)
+                return
+            }
+
             let radiusKm = self.doubleOption(options["radiusKm"], defaultValue: 10)
             let minZoom = self.uint8Option(options["minZoom"], defaultValue: 10)
             let maxZoom = self.uint8Option(options["maxZoom"], defaultValue: 16)
@@ -749,6 +775,12 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
             let options = command.argument(at: 0) as? [String: Any] ?? [:]
             let latitude = self.doubleOption(options["latitude"], defaultValue: 0)
             let longitude = self.doubleOption(options["longitude"], defaultValue: 0)
+
+            guard self.isValidLatitude(latitude), self.isValidLongitude(longitude) else {
+                self.sendError("Invalid coordinates: latitude must be in [-90, 90], longitude in [-180, 180].", command)
+                return
+            }
+
             let zoom = self.doubleOption(options["zoom"], defaultValue: 13)
             let styleUrl = options["styleUrl"] as? String ?? StyleURI.streets.rawValue
             let styleURI = StyleURI(rawValue: styleUrl) ?? .streets
@@ -896,7 +928,8 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
             var ring = geometry.compactMap { point -> CLLocationCoordinate2D? in
                 let latitude = doubleOption(point["lat"] ?? point["latitude"], defaultValue: Double.nan)
                 let longitude = doubleOption(point["lon"] ?? point["lng"] ?? point["longitude"], defaultValue: Double.nan)
-                guard latitude.isFinite, longitude.isFinite else {
+                guard latitude.isFinite, longitude.isFinite,
+                      isValidLatitude(latitude), isValidLongitude(longitude) else {
                     return nil
                 }
                 return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -1326,6 +1359,14 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         }
 
         return defaultValue
+    }
+
+    private func isValidLatitude(_ lat: Double) -> Bool {
+        lat.isFinite && lat >= -90 && lat <= 90
+    }
+
+    private func isValidLongitude(_ lon: Double) -> Bool {
+        lon.isFinite && lon >= -180 && lon <= 180
     }
 
     private func colorOption(_ value: Any?, defaultColor: UIColor) -> UIColor {
