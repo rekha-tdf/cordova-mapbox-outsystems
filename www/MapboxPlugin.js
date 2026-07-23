@@ -131,10 +131,15 @@ var api = {
       try {
         boundaries = JSON.parse(boundaries);
       } catch (error) {
-        boundaries = [];
+        return Promise.reject(new Error(
+          'Failed to parse boundaries: ' + (error.message || 'Invalid JSON.')
+        ));
       }
     }
-    options.boundaries = boundaries || [];
+    if (!Array.isArray(boundaries)) {
+      return Promise.reject(new Error('Boundaries must be a JSON string or an array.'));
+    }
+    options.boundaries = boundaries;
     return call('loadBoundaries', [options]);
   },
 
