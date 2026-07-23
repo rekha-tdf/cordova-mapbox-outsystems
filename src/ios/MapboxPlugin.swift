@@ -46,12 +46,10 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
                 return
             }
 
-            let runtimeToken = options["token"] as? String ?? ""
-            let fallbackToken = self.preferenceValue("MAPBOX_ACCESS_TOKEN")
-            let token = runtimeToken.isEmpty ? fallbackToken : runtimeToken
+            let token = self.getAccessToken()
 
             guard !token.isEmpty else {
-                self.sendError("Mapbox access token is required.", command)
+                self.sendError("Mapbox access token is required. Configure MAPBOX_ACCESS_TOKEN in OutSystems Extensibility Configuration.", command)
                 return
             }
 
@@ -1077,6 +1075,55 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
 
     @objc private func closeFromButton() {
         closeInternal()
+    }
+
+    private func getAccessToken() -> String {
+        if let token = getTokenFromKeychain(), !token.isEmpty {
+            return token
+        }
+
+        let token = preferenceValue("MAPBOX_ACCESS_TOKEN")
+        if !token.isEmpty {
+            saveTokenToKeychain(token)
+        }
+        return token
+    }
+
+    private let keychainService = "com.outsystems.mapbox"
+    private let keychainAccount = "mapbox_access_token"
+
+    private func getTokenFromKeychain() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess, let data = result as? Data else {
+            return nil
+        }
+
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func saveTokenToKeychain(_ token: String) {
+        guard let data = token.data(using: .utf8) else { return }
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ]
+
+        SecItemDelete(query as CFDictionary)
+        SecItemAdd(query as CFDictionary, nil)
     }
 
     private func preferenceValue(_ key: String) -> String {

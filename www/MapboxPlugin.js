@@ -34,7 +34,9 @@ var api = {
   },
 
   initialize: function (options) {
-    return call('initialize', [options || {}]);
+    options = options || {};
+    delete options.token;
+    return call('initialize', [options]);
   },
 
   ping: function () {

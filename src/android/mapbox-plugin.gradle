@@ -67,4 +67,5 @@ dependencies {
             ?: System.getenv("MAPBOX_ANDROID_VERSION")
             ?: "11.20.2"
     implementation "com.mapbox.maps:android:${mapboxAndroidVersion}"
+    implementation "androidx.security:security-crypto:1.1.0-alpha06"
 }

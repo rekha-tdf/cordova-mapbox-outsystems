@@ -30,6 +30,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import android.content.SharedPreferences;
+import androidx.security.crypto.EncryptedSharedPreferences;
+import androidx.security.crypto.MasterKey;
+
 import com.mapbox.bindgen.Value;
 import com.mapbox.common.Cancelable;
 import com.mapbox.common.MapboxOptions;
@@ -206,15 +210,9 @@ public class MapboxPluginEntry extends CordovaPlugin {
     private void initialize(JSONObject options, CallbackContext callback) {
         cordova.getActivity().runOnUiThread(() -> {
             try {
-                String token = options.optString("token", "");
-                if (token.trim().isEmpty()) {
-                    token = preferences.getString("MAPBOX_ACCESS_TOKEN", "");
-                }
-                if ("__MAPBOX_ACCESS_TOKEN_NOT_SET__".equals(token)) {
-                    token = "";
-                }
-                if (token.trim().isEmpty()) {
-                    callback.error("Mapbox access token is required.");
+                String token = getAccessToken();
+                if (token.isEmpty()) {
+                    callback.error("Mapbox access token is required. Configure MAPBOX_ACCESS_TOKEN in OutSystems Extensibility Configuration.");
                     return;
                 }
 
@@ -281,6 +279,58 @@ public class MapboxPluginEntry extends CordovaPlugin {
                 callback.error(e.getMessage() == null ? "Failed to initialize Mapbox map." : e.getMessage());
             }
         });
+    }
+
+    private String getAccessToken() {
+        String token = getTokenFromSecureStorage();
+        if (!token.isEmpty()) {
+            return token;
+        }
+
+        token = preferences.getString("MAPBOX_ACCESS_TOKEN", "");
+        if ("__MAPBOX_ACCESS_TOKEN_NOT_SET__".equals(token)) {
+            token = "";
+        }
+        if (!token.isEmpty()) {
+            saveTokenToSecureStorage(token);
+        }
+        return token;
+    }
+
+    private String getTokenFromSecureStorage() {
+        try {
+            MasterKey masterKey = new MasterKey.Builder(cordova.getActivity())
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build();
+            SharedPreferences securePrefs = EncryptedSharedPreferences.create(
+                cordova.getActivity(),
+                "mapbox_secure_prefs",
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            );
+            return securePrefs.getString("mapbox_access_token", "");
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private void saveTokenToSecureStorage(String token) {
+        try {
+            MasterKey masterKey = new MasterKey.Builder(cordova.getActivity())
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build();
+            SharedPreferences securePrefs = EncryptedSharedPreferences.create(
+                cordova.getActivity(),
+                "mapbox_secure_prefs",
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            );
+            securePrefs.edit().putString("mapbox_access_token", token).apply();
+        } catch (Exception e) {
+            // Silent fail — next launch will fall back to preferences
+        }
     }
 
     private void setViewport(JSONObject options, CallbackContext callback) {
