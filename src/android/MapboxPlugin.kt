@@ -69,6 +69,12 @@ open class MapboxPlugin : CordovaPlugin() {
                 val styleUrl = options.optString("styleUrl", Style.MAPBOX_STREETS)
                 val latitude = options.optDouble("latitude", 0.0)
                 val longitude = options.optDouble("longitude", 0.0)
+
+                if (!isValidLatitude(latitude) || !isValidLongitude(longitude)) {
+                    callback.error("Invalid coordinates: latitude must be in [-90, 90], longitude in [-180, 180].")
+                    return@runOnUiThread
+                }
+
                 val zoom = options.optDouble("zoom", 12.0)
 
                 closeInternal()
@@ -137,6 +143,10 @@ open class MapboxPlugin : CordovaPlugin() {
         }
     }
 
+    private fun isValidLatitude(lat: Double) = lat.isFinite() && lat in -90.0..90.0
+
+    private fun isValidLongitude(lon: Double) = lon.isFinite() && lon in -180.0..180.0
+
     private fun setCamera(options: JSONObject, callback: CallbackContext) {
         cordova.activity.runOnUiThread {
             val map = mapView?.mapboxMap
@@ -145,11 +155,15 @@ open class MapboxPlugin : CordovaPlugin() {
                 return@runOnUiThread
             }
 
+            val camLat = options.optDouble("latitude")
+            val camLng = options.optDouble("longitude")
+            if (!isValidLatitude(camLat) || !isValidLongitude(camLng)) {
+                callback.error("Invalid coordinates: latitude must be in [-90, 90], longitude in [-180, 180].")
+                return@runOnUiThread
+            }
+
             val camera = CameraOptions.Builder()
-                .center(Point.fromLngLat(
-                    options.optDouble("longitude"),
-                    options.optDouble("latitude")
-                ))
+                .center(Point.fromLngLat(camLng, camLat))
                 .zoom(options.optDouble("zoom", map.cameraState.zoom))
                 .bearing(options.optDouble("bearing", map.cameraState.bearing))
                 .pitch(options.optDouble("pitch", map.cameraState.pitch))
@@ -171,11 +185,15 @@ open class MapboxPlugin : CordovaPlugin() {
             val id = options.optString("id").ifBlank { System.currentTimeMillis().toString() }
             markers[id]?.let { manager.delete(it) }
 
+            val markerLat = options.optDouble("latitude")
+            val markerLng = options.optDouble("longitude")
+            if (!isValidLatitude(markerLat) || !isValidLongitude(markerLng)) {
+                callback.error("Invalid coordinates: latitude must be in [-90, 90], longitude in [-180, 180].")
+                return@runOnUiThread
+            }
+
             val markerOptions = PointAnnotationOptions()
-                .withPoint(Point.fromLngLat(
-                    options.optDouble("longitude"),
-                    options.optDouble("latitude")
-                ))
+                .withPoint(Point.fromLngLat(markerLng, markerLat))
                 .withIconImage(defaultMarkerBitmap)
 
             val marker = manager.create(markerOptions)

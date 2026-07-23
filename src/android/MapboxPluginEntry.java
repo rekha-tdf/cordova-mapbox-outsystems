@@ -225,6 +225,11 @@ public class MapboxPluginEntry extends CordovaPlugin {
                 double longitude = options.optDouble("longitude", 0.0);
                 double zoom = options.optDouble("zoom", 12.0);
 
+                if (!isValidLatitude(latitude) || !isValidLongitude(longitude)) {
+                    callback.error("Invalid coordinates: latitude must be in [-90, 90], longitude in [-180, 180].");
+                    return;
+                }
+
                 closeInternal();
 
                 boolean behindWebView = options.optBoolean("behindWebView", false);
@@ -331,11 +336,15 @@ public class MapboxPluginEntry extends CordovaPlugin {
                 return;
             }
 
+            double setCamLat = options.optDouble("latitude", 0.0);
+            double setCamLng = options.optDouble("longitude", 0.0);
+            if (!isValidLatitude(setCamLat) || !isValidLongitude(setCamLng)) {
+                callback.error("Invalid coordinates: latitude must be in [-90, 90], longitude in [-180, 180].");
+                return;
+            }
+
             mapView.getMapboxMap().setCamera(new CameraOptions.Builder()
-                .center(Point.fromLngLat(
-                    options.optDouble("longitude", 0.0),
-                    options.optDouble("latitude", 0.0)
-                ))
+                .center(Point.fromLngLat(setCamLng, setCamLat))
                 .zoom(options.optDouble("zoom", mapView.getMapboxMap().getCameraState().getZoom()))
                 .bearing(options.optDouble("bearing", mapView.getMapboxMap().getCameraState().getBearing()))
                 .pitch(options.optDouble("pitch", mapView.getMapboxMap().getCameraState().getPitch()))
@@ -660,6 +669,12 @@ public class MapboxPluginEntry extends CordovaPlugin {
 
                 double latitude = options.optDouble("latitude", 0.0);
                 double longitude = options.optDouble("longitude", 0.0);
+
+                if (!isValidLatitude(latitude) || !isValidLongitude(longitude)) {
+                    callback.error("Invalid coordinates: latitude must be in [-90, 90], longitude in [-180, 180].");
+                    return;
+                }
+
                 double radiusKm = options.optDouble("radiusKm", 10.0);
                 double minZoom = options.optDouble("minZoom", 10.0);
                 double maxZoom = options.optDouble("maxZoom", 16.0);
@@ -893,6 +908,12 @@ public class MapboxPluginEntry extends CordovaPlugin {
 
             double latitude = options.optDouble("latitude", 0.0);
             double longitude = options.optDouble("longitude", 0.0);
+
+            if (!isValidLatitude(latitude) || !isValidLongitude(longitude)) {
+                callback.error("Invalid coordinates: latitude must be in [-90, 90], longitude in [-180, 180].");
+                return;
+            }
+
             double zoom = options.optDouble("zoom", 13.0);
             String styleUrl = options.optString("styleUrl", Style.MAPBOX_STREETS);
 
@@ -1166,6 +1187,11 @@ public class MapboxPluginEntry extends CordovaPlugin {
             double latitude = options.optDouble("latitude", 0.0);
             double longitude = options.optDouble("longitude", 0.0);
 
+            if (!isValidLatitude(latitude) || !isValidLongitude(longitude)) {
+                callback.error("Invalid coordinates: latitude must be in [-90, 90], longitude in [-180, 180].");
+                return;
+            }
+
             if (!addMarkerInternal(id, latitude, longitude)) {
                 callback.error("Marker manager is not available.");
                 return;
@@ -1209,10 +1235,16 @@ public class MapboxPluginEntry extends CordovaPlugin {
                     continue;
                 }
 
+                double markerLat = marker.optDouble("latitude", 0.0);
+                double markerLng = marker.optDouble("longitude", 0.0);
+                if (!isValidLatitude(markerLat) || !isValidLongitude(markerLng)) {
+                    continue;
+                }
+
                 addMarkerInternal(
                     marker.optString("id", String.valueOf(i)),
-                    marker.optDouble("latitude", 0.0),
-                    marker.optDouble("longitude", 0.0)
+                    markerLat,
+                    markerLng
                 );
             }
 
@@ -1352,7 +1384,7 @@ public class MapboxPluginEntry extends CordovaPlugin {
 
             double latitude = readFiniteDouble(coordinate, "lat", "latitude");
             double longitude = readFiniteDouble(coordinate, "lon", "lng", "longitude");
-            if (!Double.isNaN(latitude) && !Double.isNaN(longitude)) {
+            if (!Double.isNaN(latitude) && !Double.isNaN(longitude) && isValidLatitude(latitude) && isValidLongitude(longitude)) {
                 ring.add(Point.fromLngLat(longitude, latitude));
             }
         }
@@ -1372,6 +1404,14 @@ public class MapboxPluginEntry extends CordovaPlugin {
             .withFillColor(fillColor)
             .withFillOpacity(fillOpacity)
             .withFillOutlineColor(lineColor);
+    }
+
+    private static boolean isValidLatitude(double lat) {
+        return !Double.isNaN(lat) && !Double.isInfinite(lat) && lat >= -90.0 && lat <= 90.0;
+    }
+
+    private static boolean isValidLongitude(double lon) {
+        return !Double.isNaN(lon) && !Double.isInfinite(lon) && lon >= -180.0 && lon <= 180.0;
     }
 
     private double readFiniteDouble(JSONObject object, String... keys) {
