@@ -457,9 +457,22 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
             }
 
             let options = command.argument(at: 0) as? [String: Any] ?? [:]
-            let id = (options["id"] as? String)?.isEmpty == false
-                ? options["id"] as! String
-                : String(Int(Date().timeIntervalSince1970 * 1000))
+
+            let id: String
+            if let rawId = options["id"] {
+                guard let idStr = rawId as? String else {
+                    self.sendError("Invalid id: must be a string.", command)
+                    return
+                }
+                guard !idStr.isEmpty else {
+                    self.sendError("Invalid id: must not be empty.", command)
+                    return
+                }
+                id = idStr
+            } else {
+                id = String(Int(Date().timeIntervalSince1970 * 1000))
+            }
+
             let latitude = self.doubleOption(options["latitude"], defaultValue: 0)
             let longitude = self.doubleOption(options["longitude"], defaultValue: 0)
 
