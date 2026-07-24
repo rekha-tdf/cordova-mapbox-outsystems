@@ -254,17 +254,11 @@ Or inject a fallback token through OutSystems extensibility configuration:
       {
         "name": "MAPBOX_ACCESS_TOKEN",
         "value": "pk.your_public_runtime_token_here"
-      },
-      {
-        "name": "MAPBOX_DOWNLOADS_TOKEN",
-        "value": "sk.your_downloads_token_here_if_required"
       }
     ]
   }
 }
 ```
-
-Do not expose `MAPBOX_DOWNLOADS_TOKEN` to client-side code.
 
 ## OutSystems Setup
 

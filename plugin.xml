@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugin id="cordova-plugin-outsystems-mapbox"
-        version="1.0.0"
+        version="1.0.1"
         xmlns="http://apache.org/cordova/ns/plugins/1.0"
         xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -22,12 +22,8 @@
     <!-- Comma-separated Android CPU architectures to package. Add x86_64 only for emulator builds. -->
     <preference name="MAPBOX_ANDROID_ABIS" default="arm64-v8a,armeabi-v7a" />
 
-    <!-- Required only when Gradle/CocoaPods needs to download private Mapbox artifacts. -->
-    <preference name="MAPBOX_DOWNLOADS_TOKEN" default="__MAPBOX_DOWNLOADS_TOKEN_NOT_SET__" />
-
     <platform name="android">
         <hook type="after_prepare" src="hooks/android/verify-mapbox-feature.js" />
-        <hook type="before_build" src="hooks/android/write-gradle-properties.js" />
 
         <config-file parent="/*" target="res/xml/config.xml">
             <feature name="MapboxPlugin">
