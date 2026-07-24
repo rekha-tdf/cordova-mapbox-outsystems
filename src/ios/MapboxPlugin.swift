@@ -171,7 +171,17 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
     func setTouchableRects(command: CDVInvokedUrlCommand) {
         DispatchQueue.main.async {
             let rects = command.argument(at: 0) as? [[String: Any]] ?? []
-            self.mapTouchOverlay?.touchableRects = rects.compactMap { self.touchRectFromOptions($0) }
+
+            let maxRects = 20
+            guard rects.count <= maxRects else {
+                self.sendError("Too many touchable rects. Maximum is \(maxRects).", command)
+                return
+            }
+
+            let mapFrame = self.mapView?.frame ?? .zero
+            self.mapTouchOverlay?.touchableRects = rects.compactMap {
+                self.touchRectFromOptions($0, mapViewFrame: mapFrame)
+            }
             self.sendSuccess(command)
         }
     }
@@ -1204,7 +1214,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         return CGRect(x: x, y: y, width: max(width, 1), height: max(height, 1))
     }
 
-    private func touchRectFromOptions(_ options: [String: Any]) -> CGRect {
+    private func touchRectFromOptions(_ options: [String: Any], mapViewFrame: CGRect) -> CGRect {
         var x = doubleOption(options["x"], defaultValue: 0)
         var y = doubleOption(options["y"], defaultValue: 0)
         var width = doubleOption(options["width"], defaultValue: 0)
@@ -1218,7 +1228,9 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
             height /= scale
         }
 
-        return CGRect(x: x, y: y, width: max(width, 0), height: max(height, 0))
+        let rect = CGRect(x: x, y: y, width: max(width, 0), height: max(height, 0))
+        guard rect.width > 0, rect.height > 0 else { return .null }
+        return rect.intersection(mapViewFrame)
     }
 
     private func installMapTouchOverlay(in superview: UIView, frame: CGRect) {

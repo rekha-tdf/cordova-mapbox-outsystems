@@ -361,18 +361,31 @@ public class MapboxPluginEntry extends CordovaPlugin {
                 return;
             }
 
+            int maxRects = 20;
+            if (rects.length() > maxRects) {
+                callback.error("Too many touchable rects. Maximum is " + maxRects + ".");
+                return;
+            }
+
+            int mapWidth = mapView != null ? mapView.getWidth() : 0;
+            int mapHeight = mapView != null ? mapView.getHeight() : 0;
+
             for (int i = 0; i < rects.length(); i++) {
                 JSONObject rect = rects.optJSONObject(i);
                 if (rect == null) {
                     continue;
                 }
 
-                touchableRects.add(new TouchRect(
-                    rect.optDouble("x", 0.0),
-                    rect.optDouble("y", 0.0),
-                    rect.optDouble("width", 0.0),
-                    rect.optDouble("height", 0.0)
-                ));
+                double x = clamp(rect.optDouble("x", 0.0), 0, mapWidth);
+                double y = clamp(rect.optDouble("y", 0.0), 0, mapHeight);
+                double width = clamp(rect.optDouble("width", 0.0), 0, mapWidth - x);
+                double height = clamp(rect.optDouble("height", 0.0), 0, mapHeight - y);
+
+                if (width <= 0 || height <= 0) {
+                    continue;
+                }
+
+                touchableRects.add(new TouchRect(x, y, width, height));
             }
 
             callback.success();
@@ -1703,6 +1716,10 @@ public class MapboxPluginEntry extends CordovaPlugin {
 
     private int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(value, Math.max(min, max)));
+    }
+
+    private static double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private static class TouchRect {
