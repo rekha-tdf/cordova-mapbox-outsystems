@@ -27,12 +27,16 @@
 
     <platform name="android">
         <hook type="after_prepare" src="hooks/android/verify-mapbox-feature.js" />
+        <hook type="before_build" src="hooks/android/write-gradle-properties.js" />
 
         <config-file parent="/*" target="res/xml/config.xml">
             <feature name="MapboxPlugin">
                 <param name="android-package" value="com.outsystems.mapbox.MapboxPluginEntry" />
                 <param name="onload" value="true" />
             </feature>
+        </config-file>
+        <config-file parent="/*" target="res/xml/config.xml">
+            <preference name="MAPBOX_ACCESS_TOKEN" value="$MAPBOX_ACCESS_TOKEN" />
         </config-file>
 
         <config-file parent="/manifest" target="AndroidManifest.xml">
@@ -53,6 +57,10 @@
                 <param name="ios-package" value="MapboxPlugin" />
                 <param name="onload" value="true" />
             </feature>
+        </config-file>
+
+        <config-file parent="/*" target="config.xml">
+            <preference name="MAPBOX_ACCESS_TOKEN" value="$MAPBOX_ACCESS_TOKEN" />
         </config-file>
 
         <config-file parent="NSLocationWhenInUseUsageDescription" target="*-Info.plist">

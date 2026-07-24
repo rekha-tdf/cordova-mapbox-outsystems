@@ -35,4 +35,6 @@ module.exports = function (context) {
     console.log('  <param name="android-package" value="com.outsystems.mapbox.MapboxPluginEntry" />');
     console.log('</feature>');
   }
+  var hasTokenPref = config.indexOf('name="MAPBOX_ACCESS_TOKEN"') >= 0;
+  console.log('[MapboxPlugin] Android config.xml MAPBOX_ACCESS_TOKEN present: ' + hasTokenPref);
 };
