@@ -18,11 +18,15 @@
     <!-- Runtime public token. Configured only via OutSystems Extensibility Configuration. Token must NOT be passed from JavaScript. -->
     <preference name="MAPBOX_ACCESS_TOKEN" default="__MAPBOX_ACCESS_TOKEN_NOT_SET__" />
 
-    <!-- Mapbox Android SDK artifact. Use 11.x unless your project needs another pinned version. -->
+    <!-- Mapbox Android SDK artifact. Must be an exact version; use 11.x unless your project needs another. -->
     <preference name="MAPBOX_ANDROID_VERSION" default="11.30.0" />
 
-    <!-- Comma-separated Android CPU architectures to package. Add x86_64 only for emulator builds. -->
+    <!-- Comma-separated Android CPU architectures to package. This filter applies to every native
+         library in the app. Use "all" to keep every ABI, for example for x86_64 Chromebooks or emulators. -->
     <preference name="MAPBOX_ANDROID_ABIS" default="arm64-v8a,armeabi-v7a" />
+
+    <!-- iOS location permission prompt (NSLocationWhenInUseUsageDescription). Name your own app here. -->
+    <preference name="LOCATION_USAGE_DESCRIPTION" default="Realm Mapping uses your location to show your position on the map." />
 
     <hook type="after_prepare" src="hooks/verify-runtime-token.js" />
     <preference name="MAPBOX_ALLOWED_STYLE_HOSTS" default="api.mapbox.com" />
@@ -42,6 +46,9 @@
             <preference name="MAPBOX_ACCESS_TOKEN" value="$MAPBOX_ACCESS_TOKEN" />
             <preference name="MAPBOX_ALLOWED_STYLE_HOSTS" value="$MAPBOX_ALLOWED_STYLE_HOSTS" />
             <preference name="MAPBOX_ALLOWED_MARKER_IMAGE_HOSTS" value="$MAPBOX_ALLOWED_MARKER_IMAGE_HOSTS" />
+            <!-- Read by mapbox-plugin.gradle at build time. -->
+            <preference name="MAPBOX_ANDROID_VERSION" value="$MAPBOX_ANDROID_VERSION" />
+            <preference name="MAPBOX_ANDROID_ABIS" value="$MAPBOX_ANDROID_ABIS" />
         </config-file>
 
         <config-file parent="/manifest" target="AndroidManifest.xml">
@@ -73,7 +80,7 @@
         </config-file>
 
         <config-file parent="NSLocationWhenInUseUsageDescription" target="*-Info.plist">
-            <string>Realm Mapping uses your location to show your position on the map.</string>
+            <string>$LOCATION_USAGE_DESCRIPTION</string>
         </config-file>
 
         <preference name="deployment-target" default="14.0" />

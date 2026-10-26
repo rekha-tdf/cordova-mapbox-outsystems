@@ -1,6 +1,26 @@
-def mapboxAndroidVersion = project.findProperty("MAPBOX_ANDROID_VERSION")
+// Cordova copies plugin variables into res/xml/config.xml. Read them there so that
+// MAPBOX_ANDROID_VERSION and MAPBOX_ANDROID_ABIS set in Extensibility Configuration
+// take effect; Gradle properties and environment variables still win.
+def mapboxConfigPreference = { String name ->
+    try {
+        def value = project.ext.has("cdvHelpers")
+                ? project.ext.cdvHelpers.getConfigPreference(name, "")?.toString()?.trim()
+                : null
+        return value && !value.startsWith('$') ? value : null
+    } catch (ignored) {
+        return null
+    }
+}
+
+def mapboxAndroidVersion = (project.findProperty("MAPBOX_ANDROID_VERSION")
         ?: System.getenv("MAPBOX_ANDROID_VERSION")
-        ?: "11.30.0"
+        ?: mapboxConfigPreference("MAPBOX_ANDROID_VERSION")
+        ?: "11.30.0").toString().trim()
+
+// Only exact releases: a range or "+" would let any published build into the app.
+if (!(mapboxAndroidVersion ==~ /\d+\.\d+\.\d+(-[A-Za-z0-9.]+)?/)) {
+    throw new GradleException("MAPBOX_ANDROID_VERSION must be an exact version such as 11.30.0, not '${mapboxAndroidVersion}'.")
+}
 
 buildscript {
     repositories {
@@ -8,35 +28,43 @@ buildscript {
         mavenCentral()
         maven {
             url = uri("https://api.mapbox.com/downloads/v2/releases/maven")
+            content { includeGroupByRegex "com\\.mapbox.*" }
         }
     }
 }
 
 android {
 
+    // abiFilters applies to every native library in the host app, not only Mapbox.
+    // "all" keeps every ABI that the app's dependencies ship.
+    def knownAbis = ["arm64-v8a", "armeabi-v7a", "x86", "x86_64"]
     def configuredAbis = (project.findProperty("MAPBOX_ANDROID_ABIS")
             ?: System.getenv("MAPBOX_ANDROID_ABIS")
-            ?: "arm64-v8a,armeabi-v7a")
+            ?: mapboxConfigPreference("MAPBOX_ANDROID_ABIS")
+            ?: "all")
+            .toString()
             .split(",")
             .collect { it.trim() }
-            .findAll { it }
+            .findAll { it && it != "all" }
+    def unknownAbis = configuredAbis.findAll { !knownAbis.contains(it) }
+    if (unknownAbis) {
+        throw new GradleException("MAPBOX_ANDROID_ABIS contains unknown ABIs: ${unknownAbis.join(', ')}. Use ${knownAbis.join(', ')} or all.")
+    }
 
     defaultConfig {
 
         // Expose the same Mapbox version as an Android string resource
         resValue "string", "mapbox_version", mapboxAndroidVersion
 
-        ndk {
-            abiFilters(*configuredAbis)
+        if (configuredAbis) {
+            ndk {
+                abiFilters(*configuredAbis)
+            }
         }
     }
 
-    buildTypes {
-        release {
-            minifyEnabled true
-            shrinkResources true
-        }
-    }
+    // Code shrinking is left to the host app. Cordova loads plugin classes by name from
+    // res/xml/config.xml, so forcing R8 here could strip this and other plugins.
 }
 
 repositories {
@@ -44,6 +72,8 @@ repositories {
     mavenCentral()
     maven {
         url = uri("https://api.mapbox.com/downloads/v2/releases/maven")
+        // Fetch only Mapbox artifacts from the Mapbox repository.
+        content { includeGroupByRegex "com\\.mapbox.*" }
     }
 }
 

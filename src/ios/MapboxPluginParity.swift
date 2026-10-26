@@ -25,6 +25,8 @@ class MapboxPluginParity: MapboxPlugin {
     private var moveLocationManager: CLLocationManager?
     private var moveLocationCallbackId: String?
     private var moveLocationZoom: Double?
+    private let moveLocationTimeout: TimeInterval = 15
+    private var moveLocationTimeoutWork: DispatchWorkItem?
 
     @objc(getMapboxVersion:)
     func getMapboxVersion(command: CDVInvokedUrlCommand) {
@@ -149,6 +151,12 @@ class MapboxPluginParity: MapboxPlugin {
                 return
             }
 
+            if let previous = self.moveLocationCallbackId {
+                // Settle the earlier request, as Android does, instead of orphaning it.
+                self.stopMoveLocationUpdates()
+                self.sendParityError("Location request superseded.", callbackId: previous)
+            }
+
             let options = command.argument(at: 0) as? [String: Any] ?? [:]
             self.moveLocationZoom = options["zoom"] == nil
                 ? nil
@@ -169,6 +177,17 @@ class MapboxPluginParity: MapboxPlugin {
             }
 
             self.moveLocationManager?.startUpdatingLocation()
+
+            // Without a fix (indoors, no signal) the request would otherwise never
+            // settle and GPS would stay on until the map closed.
+            let callbackId: String = command.callbackId
+            let timeout = DispatchWorkItem { [weak self] in
+                guard let self = self, self.moveLocationCallbackId == callbackId else { return }
+                self.stopMoveLocationUpdates()
+                self.sendParityError("No valid location update received within 15 seconds.", callbackId: callbackId)
+            }
+            self.moveLocationTimeoutWork = timeout
+            DispatchQueue.main.asyncAfter(deadline: .now() + self.moveLocationTimeout, execute: timeout)
         }
     }
 
@@ -322,6 +341,13 @@ class MapboxPluginParity: MapboxPlugin {
             return
         }
 
+        // iOS usually reports its last cached fix first. Wait for a fresh fix with a
+        // valid accuracy, as Android does; the timeout settles the request otherwise.
+        guard location.horizontalAccuracy >= 0,
+              abs(location.timestamp.timeIntervalSinceNow) <= maxLocationAge else {
+            return
+        }
+
         let coordinate = location.coordinate
         guard coordinate.latitude.isFinite, coordinate.longitude.isFinite,
               coordinate.latitude >= -90, coordinate.latitude <= 90,
@@ -429,6 +455,8 @@ class MapboxPluginParity: MapboxPlugin {
     }
 
     private func stopMoveLocationUpdates() {
+        moveLocationTimeoutWork?.cancel()
+        moveLocationTimeoutWork = nil
         moveLocationManager?.stopUpdatingLocation()
         moveLocationManager?.delegate = nil
         moveLocationManager = nil
@@ -458,12 +486,16 @@ class MapboxPluginParity: MapboxPlugin {
     }
 
     private func doubleValue(_ value: Any?, defaultValue: Double) -> Double {
-        if let value = value as? Double { return value }
-        if let value = value as? Float { return Double(value) }
-        if let value = value as? Int { return Double(value) }
-        if let value = value as? NSNumber { return value.doubleValue }
-        if let value = value as? String, let parsed = Double(value) { return parsed }
-        return defaultValue
+        let parsed: Double?
+        if let value = value as? Double { parsed = value }
+        else if let value = value as? Float { parsed = Double(value) }
+        else if let value = value as? Int { parsed = Double(value) }
+        else if let value = value as? NSNumber { parsed = value.doubleValue }
+        else if let value = value as? String { parsed = Double(value) }
+        else { parsed = nil }
+        // Reject "NaN"/"Infinity": non-finite camera values must never reach the SDK.
+        guard let number = parsed, number.isFinite else { return defaultValue }
+        return number
     }
 
     private func sendParitySuccess(_ command: CDVInvokedUrlCommand) {

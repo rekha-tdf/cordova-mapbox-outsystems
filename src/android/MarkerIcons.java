@@ -59,10 +59,21 @@ final class MarkerIcons {
     private static final int LOCK_DARK_COLOR = 0xA65E4A43;
     private static final int IMAGE_DECODE_SIZE = 128;
     private static final int TIMEOUT_MS = 10000;
+    private static final int MAX_REDIRECTS = 3;
+    // A small, highly compressed file can declare enormous dimensions; refuse those before decoding.
+    private static final int MAX_IMAGE_SIDE = 4096;
+    private static final long MAX_IMAGE_PIXELS = 4_000_000L;
+    private static final int IMAGE_CACHE_BYTES = 8 * 1024 * 1024;
 
     // Reusing one Bitmap instance per look lets Mapbox register a single style image for it.
     private final LruCache<String, Bitmap> pins = new LruCache<>(64);
-    private final LruCache<String, Bitmap> images = new LruCache<>(64);
+    // Sized in bytes so a few large images cannot hold most of the heap.
+    private final LruCache<String, Bitmap> images = new LruCache<String, Bitmap>(IMAGE_CACHE_BYTES) {
+        @Override
+        protected int sizeOf(String key, Bitmap value) {
+            return value.getByteCount();
+        }
+    };
     private ExecutorService executor = Executors.newFixedThreadPool(3);
     private final java.util.Set<HttpURLConnection> connections = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private volatile long generation;
@@ -151,44 +162,59 @@ final class MarkerIcons {
             return bytes.length <= MapboxSecurity.MAX_MARKER_IMAGE_BYTES ? bytes : null;
         }
 
-        HttpURLConnection connection = (HttpURLConnection) new URL(source).openConnection();
-        connections.add(connection);
-        try {
-            if (requestGeneration != generation || Thread.currentThread().isInterrupted()) return null;
-            connection.setConnectTimeout(TIMEOUT_MS);
-            connection.setReadTimeout(TIMEOUT_MS);
-            connection.setRequestProperty("Accept", "image/*");
-            // getURL() reflects redirects, so the final host must pass the same policy.
-            if (connection.getResponseCode() != HttpURLConnection.HTTP_OK
-                    || !MapboxSecurity.markerImageAllowed(connection.getURL().toString(), hosts)
-                    || connection.getContentLength() > MapboxSecurity.MAX_MARKER_IMAGE_BYTES) {
-                return null;
-            }
-
-            try (InputStream in = connection.getInputStream()) {
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                byte[] buffer = new byte[8192];
-                int read;
-                while ((read = in.read(buffer)) != -1) {
-                    if (requestGeneration != generation || Thread.currentThread().isInterrupted()) return null;
-                    if (out.size() + read > MapboxSecurity.MAX_MARKER_IMAGE_BYTES) {
-                        return null;
-                    }
-                    out.write(buffer, 0, read);
+        String location = source;
+        for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
+            // Check each hop before connecting. Automatic redirects would contact an
+            // unapproved host before its URL could be checked.
+            if (!MapboxSecurity.markerImageAllowed(location, hosts)) return null;
+            HttpURLConnection connection = (HttpURLConnection) new URL(location).openConnection();
+            connections.add(connection);
+            try {
+                if (requestGeneration != generation || Thread.currentThread().isInterrupted()) return null;
+                connection.setInstanceFollowRedirects(false);
+                connection.setConnectTimeout(TIMEOUT_MS);
+                connection.setReadTimeout(TIMEOUT_MS);
+                connection.setRequestProperty("Accept", "image/*");
+                int status = connection.getResponseCode();
+                if (status >= 300 && status < 400 && status != HttpURLConnection.HTTP_NOT_MODIFIED) {
+                    String next = connection.getHeaderField("Location");
+                    if (next == null) return null;
+                    location = new URL(connection.getURL(), next).toString();
+                    continue;
                 }
-                return out.toByteArray();
+                if (status != HttpURLConnection.HTTP_OK
+                        || connection.getContentLength() > MapboxSecurity.MAX_MARKER_IMAGE_BYTES) {
+                    return null;
+                }
+
+                try (InputStream in = connection.getInputStream()) {
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    byte[] buffer = new byte[8192];
+                    int read;
+                    while ((read = in.read(buffer)) != -1) {
+                        if (requestGeneration != generation || Thread.currentThread().isInterrupted()) return null;
+                        if (out.size() + read > MapboxSecurity.MAX_MARKER_IMAGE_BYTES) {
+                            return null;
+                        }
+                        out.write(buffer, 0, read);
+                    }
+                    return out.toByteArray();
+                }
+            } finally {
+                connections.remove(connection);
+                connection.disconnect();
             }
-        } finally {
-            connections.remove(connection);
-            connection.disconnect();
         }
+        return null;
     }
 
     private static Bitmap decode(byte[] bytes) {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0
+                || bounds.outWidth > MAX_IMAGE_SIDE || bounds.outHeight > MAX_IMAGE_SIDE
+                || (long) bounds.outWidth * bounds.outHeight > MAX_IMAGE_PIXELS) {
             return null;
         }
 

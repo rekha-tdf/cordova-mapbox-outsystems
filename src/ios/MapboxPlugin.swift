@@ -375,7 +375,8 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
                 pitch: pitch
             )
 
-            let duration = (options["duration"] as? Double).map { $0 / 1000.0 }
+            let duration = (options["duration"] as? Double)
+                .flatMap { $0.isFinite ? min(max($0, 0), 10000) / 1000.0 : nil }
             mapView.camera.fly(to: camera, duration: duration)
 
             self.sendSuccess(command)
@@ -1081,6 +1082,24 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         lineAnnotationManager?.annotations.append(annotation)
     }
 
+    /// Rebuilds the drawn path from stored geometry; annotations are only a view of it.
+    private func redrawPathAnnotations() {
+        guard ensureLineAnnotationManager() else { return }
+        currentSegmentAnnotation = nil
+
+        // A loaded path has no recorded segments; draw its points as one line.
+        let lines = pathSegments.isEmpty && currentSegment.isEmpty ? [pathPoints] : pathSegments
+        pathAnnotations = lines.filter { $0.count >= 2 }.map { line in
+            var annotation = PolylineAnnotation(lineCoordinates: line)
+            annotation.lineColor = StyleColor(colorOption(pathLineColor, defaultColor: .red))
+            annotation.lineWidth = pathLineWidth
+            annotation.lineOpacity = pathLineOpacity
+            return annotation
+        }
+        lineAnnotationManager?.annotations = pathAnnotations
+        updatePathAnnotation()
+    }
+
     @objc(startPathTracking:)
     func startPathTracking(command: CDVInvokedUrlCommand) {
         rememberCommand(command)
@@ -1281,6 +1300,8 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
             // when invalid points are skipped.
             var validPoints: [CLLocationCoordinate2D] = []
             var validIndexes: [Int] = []
+            // A loaded path replaces any live segment.
+            self.currentSegment.removeAll()
             for (index, pointDict) in pointsArray.enumerated() {
                 let lat = self.doubleOption(pointDict["lat"] ?? pointDict["latitude"], defaultValue: Double.nan)
                 let lon = self.doubleOption(pointDict["lon"] ?? pointDict["lng"] ?? pointDict["longitude"], defaultValue: Double.nan)
@@ -1345,7 +1366,9 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
             self.pathAnnotations.removeAll()
             self.currentSegmentAnnotation = nil
             self.pathPoints.removeAll()
+            // Segment indices returned by stopPathTracking must match the points.
             self.pathSegments.removeAll()
+            self.currentSegment.removeAll()
             self.sendSuccess(command)
         }
     }
@@ -1362,8 +1385,6 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
             let options = command.argument(at: 0) as? [String: Any] ?? [:]
             guard self.validInput(options, command) else { return }
             let visible = self.boolOption(options["visible"], defaultValue: true)
-            let wasVisible = self.isPathVisible
-
             self.isPathVisible = visible
 
             if !visible {
@@ -1372,12 +1393,8 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
                 self.pathAnnotations.removeAll()
                 self.currentSegmentAnnotation = nil
             } else {
-                // Show: bring back the finished segments (only if they were hidden, so a
-                // repeated call does not stack duplicates), then the live segment.
-                if !wasVisible {
-                    self.drawSegmentAnnotations()
-                }
-                self.updatePathAnnotation()
+                // Show: redraw frozen segments or the loaded path, then the live segment
+                self.redrawPathAnnotations()
             }
 
             self.sendSuccess(command)
@@ -1708,7 +1725,8 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
             self.sendError("Style URL is not allowed. Use a Mapbox style or an approved HTTPS host.", command)
             return
         }
-        let deleteStylePack = options["deleteStylePack"] as? Bool ?? true
+        // Other regions usually share this style pack; only delete it when asked.
+        let deleteStylePack = options["deleteStylePack"] as? Bool ?? false
 
         guard !regionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             sendError("regionId is required.", command)
@@ -2507,14 +2525,25 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         super.onReset()
     }
 
-    private func getAccessToken() -> String {
-        // Erase the obsolete cache; the bundled public token is authoritative.
+    override func pluginInitialize() {
+        super.pluginInitialize()
+        // The plugin loads at app start (onload), so this runs even if no map is ever opened.
+        clearLegacyTokenCache()
+    }
+
+    /// Erases the token cached by earlier releases. Keychain items survive app deletion,
+    /// so this must not wait for a map to be initialized.
+    private func clearLegacyTokenCache() {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "com.outsystems.mapbox",
             kSecAttrAccount as String: "mapbox_access_token"
         ]
         SecItemDelete(query as CFDictionary)
+    }
+
+    private func getAccessToken() -> String {
+        // The bundled public token is authoritative; never read a cached copy.
         let token = preferenceValue("MAPBOX_ACCESS_TOKEN").trimmingCharacters(in: .whitespacesAndNewlines)
         return MapboxSecurity.publicToken(token) ? token : ""
     }
@@ -2558,7 +2587,17 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
             defaultValue: Double(webView.bounds.height) * scale
         ) / scale
 
-        return CGRect(x: x, y: y, width: max(width, 1), height: max(height, 1))
+        // Keep the map inside Metal's 16384 px texture limit and near the WebView.
+        let maxSide = 16384 / scale
+        func bounded(_ value: Double, _ lower: Double, _ upper: Double) -> CGFloat {
+            CGFloat(min(max(value, lower), upper))
+        }
+        return CGRect(
+            x: bounded(x, -maxSide, maxSide),
+            y: bounded(y, -maxSide, maxSide),
+            width: bounded(width, 1, maxSide),
+            height: bounded(height, 1, maxSide)
+        )
     }
 
     private func touchRectFromOptions(_ options: [String: Any]) -> CGRect {
@@ -2744,27 +2783,27 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
     }
 
     private func doubleOption(_ value: Any?, defaultValue: Double) -> Double {
+        let parsed: Double?
         if let value = value as? Double {
-            return value
+            parsed = value
+        } else if let value = value as? Float {
+            parsed = Double(value)
+        } else if let value = value as? Int {
+            parsed = Double(value)
+        } else if let value = value as? NSNumber {
+            parsed = value.doubleValue
+        } else if let value = value as? String {
+            parsed = Double(value)
+        } else {
+            parsed = nil
         }
 
-        if let value = value as? Float {
-            return Double(value)
+        // Strings such as "NaN" or "Infinity" parse to non-finite values that make
+        // CALayer raise CALayerInvalidGeometry and terminate the app.
+        guard let number = parsed, number.isFinite else {
+            return defaultValue
         }
-
-        if let value = value as? Int {
-            return Double(value)
-        }
-
-        if let value = value as? NSNumber {
-            return value.doubleValue
-        }
-
-        if let value = value as? String, let parsedValue = Double(value) {
-            return parsedValue
-        }
-
-        return defaultValue
+        return number
     }
 
     private func boolOption(_ value: Any?, defaultValue: Bool) -> Bool {

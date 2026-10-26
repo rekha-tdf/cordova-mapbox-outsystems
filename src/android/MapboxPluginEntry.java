@@ -115,6 +115,9 @@ private static final float MAX_ACCEPTABLE_ACCURACY_METERS = 25.0f;
     private static final long CAMERA_FOLLOW_INTERVAL_MS = 250L;
     private static final long CAMERA_FOLLOW_DURATION_MS = 200L;
     private static final long RECENTER_ANIMATION_DURATION_MS = 1500L;
+    private static final long MAX_ANIMATION_MS = 10_000L;
+    private static final String LEGACY_CREDENTIAL_PREFS = "mapbox_secure_prefs";
+    private static final double MAX_LINE_WIDTH = 50.0;
 
     private static final int MOVEMENT_STATE_STATIONARY = 0;
     private static final int MOVEMENT_STATE_SLOW = 1;
@@ -559,9 +562,9 @@ private static final float MAX_ACCEPTABLE_ACCURACY_METERS = 25.0f;
             }
                 double latitude = options.optDouble("latitude", 0.0);
                 double longitude = options.optDouble("longitude", 0.0);
-                double zoom = options.optDouble("zoom", 12.0);
-                double bearing = options.optDouble("bearing", 0.0);
-                double pitch = options.optDouble("pitch", 0.0);
+                double zoom = finiteOr(options.optDouble("zoom", 12.0), 12.0);
+                double bearing = finiteOr(options.optDouble("bearing", 0.0), 0.0);
+                double pitch = finiteOr(options.optDouble("pitch", 0.0), 0.0);
 
                 if (!isValidLatitude(latitude) || !isValidLongitude(longitude)) {
                     callback.error("Invalid coordinates: latitude must be in [-90, 90], longitude in [-180, 180].");
@@ -702,10 +705,26 @@ if (gestures != null) {
         // Public runtime tokens are already bundled in config.xml. Read the
         // authoritative configuration on every initialization; never prefer an old cache.
         String token = preferences.getString("MAPBOX_ACCESS_TOKEN", "").trim();
-        // Remove values written by releases that cached credentials.
-        cordova.getActivity().getSharedPreferences("mapbox_secure_prefs", Context.MODE_PRIVATE)
-            .edit().clear().apply();
         return MapboxSecurity.publicToken(token) ? token : "";
+    }
+
+    @Override
+    protected void pluginInitialize() {
+        super.pluginInitialize();
+        // The plugin loads at app start (onload), so this runs even if no map is ever opened.
+        clearLegacyCredentialCache();
+    }
+
+    /** Removes credentials cached by releases before the bundled public-token model. */
+    private void clearLegacyCredentialCache() {
+        Context context = cordova.getActivity();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            // Delete the file itself so later backups carry no copy of it.
+            context.deleteSharedPreferences(LEGACY_CREDENTIAL_PREFS);
+        } else {
+            context.getSharedPreferences(LEGACY_CREDENTIAL_PREFS, Context.MODE_PRIVATE)
+                .edit().clear().apply();
+        }
     }
 
     private boolean styleAllowed(String style) {
@@ -733,10 +752,12 @@ if (gestures != null) {
                 return;
             }
 
-            int x = options.optInt("x", 0);
-            int y = options.optInt("y", 0);
-            int width = options.optInt("width", 1);
-            int height = options.optInt("height", 1);
+            int screenWidth = cordova.getActivity().getResources().getDisplayMetrics().widthPixels;
+            int screenHeight = cordova.getActivity().getResources().getDisplayMetrics().heightPixels;
+            int x = clamp(options.optInt("x", 0), -screenWidth, screenWidth);
+            int y = clamp(options.optInt("y", 0), -screenHeight, screenHeight);
+            int width = clamp(options.optInt("width", 1), 1, screenWidth);
+            int height = clamp(options.optInt("height", 1), 1, screenHeight);
 
             int[] webViewLocation = new int[2];
             webView.getView().getLocationInWindow(webViewLocation);
@@ -837,9 +858,9 @@ if (gestures != null) {
 
             mapView.getMapboxMap().setCamera(new CameraOptions.Builder()
                 .center(Point.fromLngLat(setCamLng, setCamLat))
-                .zoom(options.optDouble("zoom", mapView.getMapboxMap().getCameraState().getZoom()))
-                .bearing(options.optDouble("bearing", mapView.getMapboxMap().getCameraState().getBearing()))
-                .pitch(options.optDouble("pitch", mapView.getMapboxMap().getCameraState().getPitch()))
+                .zoom(finiteOption(options, "zoom", mapView.getMapboxMap().getCameraState().getZoom()))
+                .bearing(finiteOption(options, "bearing", mapView.getMapboxMap().getCameraState().getBearing()))
+                .pitch(finiteOption(options, "pitch", mapView.getMapboxMap().getCameraState().getPitch()))
                 .build());
 
             callback.success();
@@ -869,14 +890,14 @@ if (gestures != null) {
 
             CameraOptions cameraOptions = new CameraOptions.Builder()
                 .center(Point.fromLngLat(flyLng, flyLat))
-                .zoom(options.optDouble("zoom", mapView.getMapboxMap().getCameraState().getZoom()))
-                .bearing(options.optDouble("bearing", mapView.getMapboxMap().getCameraState().getBearing()))
-                .pitch(options.optDouble("pitch", mapView.getMapboxMap().getCameraState().getPitch()))
+                .zoom(finiteOption(options, "zoom", mapView.getMapboxMap().getCameraState().getZoom()))
+                .bearing(finiteOption(options, "bearing", mapView.getMapboxMap().getCameraState().getBearing()))
+                .pitch(finiteOption(options, "pitch", mapView.getMapboxMap().getCameraState().getPitch()))
                 .build();
 
             MapAnimationOptions.Builder animationOptions = new MapAnimationOptions.Builder();
             if (options.has("duration")) {
-                animationOptions.duration(options.optLong("duration", 2000L));
+                animationOptions.duration(Math.max(0L, Math.min(options.optLong("duration", 2000L), MAX_ANIMATION_MS)));
             }
 
             cameraAnimations.flyTo(cameraOptions, animationOptions.build(), null);
@@ -1796,7 +1817,7 @@ if (gestures != null) {
             }
 
             moveToCurrentLocationZoomSet = options.has("zoom");
-            moveToCurrentLocationZoom = options.optDouble("zoom", 0.0);
+            moveToCurrentLocationZoom = finiteOption(options, "zoom", 0.0);
 
             if (!hasLocationPermission()) {
                 callback.error("Location permission is not granted.");
@@ -2270,7 +2291,7 @@ if (gestures != null) {
                 return;
             }
 
-            double zoom = options.optDouble("zoom", 13.0);
+            double zoom = finiteOption(options, "zoom", 13.0);
             String styleUrl = options.optString("styleUrl", Style.MAPBOX_STREETS);
             if (!styleAllowed(styleUrl)) {
                 callback.error("Style URL is not allowed. Use a Mapbox style or an approved HTTPS host.");
@@ -2296,7 +2317,8 @@ if (gestures != null) {
                 callback.error("Style URL is not allowed. Use a Mapbox style or an approved HTTPS host.");
                 return;
             }
-                boolean deleteStylePack = options.optBoolean("deleteStylePack", true);
+                // Other regions usually share this style pack; only delete it when asked.
+                boolean deleteStylePack = options.optBoolean("deleteStylePack", false);
 
                 if (regionId.trim().isEmpty()) {
                     callback.error("regionId is required.");
@@ -3240,6 +3262,12 @@ if (gestures != null) {
             }
             if (options.optBoolean("replace", true)) clearMarkersInternal();
 
+            // Create the whole batch in one call. Each single create() or delete()
+            // rebuilds the manager's GeoJSON, which made large loads quadratic.
+            Map<String, Integer> batchIndex = new HashMap<>();
+            List<String> batchIds = new ArrayList<>();
+            List<Point> batchPoints = new ArrayList<>();
+            List<MarkerStyle> batchStyles = new ArrayList<>();
             for (int i = 0; i < markers.length(); i++) {
                 JSONObject marker = markers.optJSONObject(i);
                 if (marker == null) {
@@ -3252,12 +3280,40 @@ if (gestures != null) {
                     continue;
                 }
 
-                addMarkerInternal(
-                    marker.optString("Id", String.valueOf(i)),
-                    markerLat,
-                    markerLng,
-                    styles[i]
-                );
+                String id = marker.optString("Id", String.valueOf(i));
+                Point point = Point.fromLngLat(markerLng, markerLat);
+                Integer slot = batchIndex.get(id);
+                if (slot != null) {
+                    // A later duplicate id replaces the earlier one, as sequential adds did.
+                    batchPoints.set(slot, point);
+                    batchStyles.set(slot, styles[i]);
+                    continue;
+                }
+                batchIndex.put(id, batchIds.size());
+                batchIds.add(id);
+                batchPoints.add(point);
+                batchStyles.add(styles[i]);
+            }
+
+            List<PointAnnotation> replaced = new ArrayList<>();
+            for (String id : batchIds) {
+                PointAnnotation old = markerAnnotationsByRecordId.get(id);
+                if (old != null) replaced.add(old);
+            }
+            if (!replaced.isEmpty()) {
+                pointAnnotationManager.delete(replaced);
+                for (String id : batchIds) forgetMarker(id);
+            }
+
+            List<PointAnnotationOptions> batchOptions = new ArrayList<>();
+            for (int i = 0; i < batchIds.size(); i++) {
+                batchOptions.add(markerOptions(batchPoints.get(i), batchStyles.get(i)));
+            }
+            List<PointAnnotation> created = batchOptions.isEmpty()
+                ? Collections.<PointAnnotation>emptyList()
+                : pointAnnotationManager.create(batchOptions);
+            for (int i = 0; i < created.size(); i++) {
+                registerMarker(batchIds.get(i), created.get(i), batchPoints.get(i), batchStyles.get(i));
             }
 
             callback.success();
@@ -3290,40 +3346,40 @@ private boolean addMarkerInternal(
 
     removeMarkerInternal(id);
 
-    PointAnnotationOptions markerOptions = new PointAnnotationOptions()
-        .withPoint(Point.fromLngLat(longitude, latitude))
-        // Every marker uses the Find (square) / Waypoint (circle) design; pinStyle "photo"
-        // is still accepted from older screens but no longer selects a different pin.
-        // Private markers (isPublic: false) show a lock tile instead of their image.
-        // Plain location pins (no isFind) and offline markers without an image show the classic red pin.
-        .withIconImage(!style.isPublic
-            ? markerIcons.lockedPin(style.color, style.isFind,
-                cordova.getActivity().getResources().getDisplayMetrics().density)
-            : style.classicPin
-            ? markerIcons.offlinePin(style.color,
-                cordova.getActivity().getResources().getDisplayMetrics().density)
-            : markerIcons.pin(style.color, style.isFind, style.imageUrl,
-                cordova.getActivity().getResources().getDisplayMetrics().density))
-        .withIconAnchor(IconAnchor.BOTTOM)
-        .withIconSize(0.5);
-
+    Point point = Point.fromLngLat(longitude, latitude);
     PointAnnotation annotation =
-        pointAnnotationManager.create(markerOptions);
-
-    markerRecordIds.put(annotation.getId(), id);
-    markerAnnotationsByRecordId.put(id, annotation);
-    markerPointsByRecordId.put(
-        id,
-        Point.fromLngLat(longitude, latitude)
-    );
-    markerStylesByRecordId.put(id, style);
-
-    if (style.imageUrl != null && !markerIcons.hasImage(style.imageUrl)) {
-        requestMarkerImage(id, style.imageUrl);
-    }
-
+        pointAnnotationManager.create(markerOptions(point, style));
+    registerMarker(id, annotation, point, style);
     return true;
 }
+
+    private PointAnnotationOptions markerOptions(Point point, MarkerStyle style) {
+        float density = cordova.getActivity().getResources().getDisplayMetrics().density;
+        return new PointAnnotationOptions()
+            .withPoint(point)
+            // Every marker uses the Find (square) / Waypoint (circle) design; pinStyle "photo"
+            // is still accepted from older screens but no longer selects a different pin.
+            // Private markers (isPublic: false) show a lock tile instead of their image.
+            // Plain location pins (no isFind) and offline markers without an image show the classic red pin.
+            .withIconImage(!style.isPublic
+                ? markerIcons.lockedPin(style.color, style.isFind, density)
+                : style.classicPin
+                ? markerIcons.offlinePin(style.color, density)
+                : markerIcons.pin(style.color, style.isFind, style.imageUrl, density))
+            .withIconAnchor(IconAnchor.BOTTOM)
+            .withIconSize(0.5);
+    }
+
+    private void registerMarker(String id, PointAnnotation annotation, Point point, MarkerStyle style) {
+        markerRecordIds.put(annotation.getId(), id);
+        markerAnnotationsByRecordId.put(id, annotation);
+        markerPointsByRecordId.put(id, point);
+        markerStylesByRecordId.put(id, style);
+
+        if (style.imageUrl != null && !markerIcons.hasImage(style.imageUrl)) {
+            requestMarkerImage(id, style.imageUrl);
+        }
+    }
 
     /** Returns null when imageUrl is not an allowed image source. */
     private MarkerStyle markerStyle(boolean isFind, String pinColor, String rawImageUrl) {
@@ -3478,13 +3534,18 @@ private boolean addMarkerInternal(
         }
 
         PointAnnotation annotation = markerAnnotationsByRecordId.get(id);
+        if (annotation != null && pointAnnotationManager != null) {
+            pointAnnotationManager.delete(annotation);
+        }
+        forgetMarker(id);
+    }
+
+    /** Drops the bookkeeping for a marker whose annotation has already been deleted. */
+    private void forgetMarker(String id) {
+        PointAnnotation annotation = markerAnnotationsByRecordId.remove(id);
         if (annotation != null) {
-            if (pointAnnotationManager != null) {
-                pointAnnotationManager.delete(annotation);
-            }
             markerRecordIds.remove(annotation.getId());
         }
-        markerAnnotationsByRecordId.remove(id);
         markerPointsByRecordId.remove(id);
         markerStylesByRecordId.remove(id);
         // Keep in-flight downloads for other markers, but forget this subscriber.
@@ -3502,10 +3563,7 @@ private boolean addMarkerInternal(
 
     private void clearMarkersInternal() {
         if (pointAnnotationManager != null) {
-            List<PointAnnotation> annotations = new ArrayList<>(pointAnnotationManager.getAnnotations());
-            for (PointAnnotation annotation : annotations) {
-                pointAnnotationManager.delete(annotation);
-            }
+            pointAnnotationManager.deleteAll();
         }
 
         markerRecordIds.clear();
@@ -3551,18 +3609,9 @@ private boolean addMarkerInternal(
             clearBoundaryAnnotations();
 
             if (boundaries != null) {
-                String fillColor = options.optString(
-                    "fillColor",
-                    "#2E7D32"
-                );
-                double fillOpacity = options.optDouble(
-                    "fillOpacity",
-                    0.18
-                );
-                String lineColor = options.optString(
-                    "lineColor",
-                    "#1B5E20"
-                );
+                String fillColor = options.optString("fillColor", "#2E7D32");
+                double fillOpacity = clamp(finiteOption(options, "fillOpacity", 0.18), 0.0, 1.0);
+                String lineColor = options.optString("lineColor", "#1B5E20");
 
                 for (int i = 0; i < boundaries.length(); i++) {
                     JSONObject boundary = boundaries.optJSONObject(i);
@@ -4004,6 +4053,15 @@ private boolean addMarkerInternal(
         return !Double.isNaN(lon) && !Double.isInfinite(lon) && lon >= -180.0 && lon <= 180.0;
     }
 
+    /** JSONObject.optDouble parses the strings "NaN" and "Infinity"; never pass those on. */
+    private static double finiteOption(JSONObject options, String key, double fallback) {
+        return finiteOr(options.optDouble(key, fallback), fallback);
+    }
+
+    private static double finiteOr(double value, double fallback) {
+        return Double.isFinite(value) ? value : fallback;
+    }
+
     private double readFiniteDouble(JSONObject object, String... keys) {
         for (String key : keys) {
             if (!object.has(key)) {
@@ -4049,24 +4107,14 @@ private boolean addMarkerInternal(
         }
 
         clearBoundaryAnnotations();
-
-        for (PolygonAnnotationOptions options : boundaryAnnotationOptions) {
-
-            boundaryAnnotations.add(
-                boundaryAnnotationManager.create(options)
-            );
+        if (!boundaryAnnotationOptions.isEmpty()) {
+            boundaryAnnotations.addAll(boundaryAnnotationManager.create(boundaryAnnotationOptions));
         }
     }
 
     private void clearBoundaryAnnotations() {
-
-        if (boundaryAnnotationManager != null) {
-
-            for (PolygonAnnotation annotation :
-                    new ArrayList<>(boundaryAnnotations)) {
-
-                boundaryAnnotationManager.delete(annotation);
-            }
+        if (boundaryAnnotationManager != null && !boundaryAnnotations.isEmpty()) {
+            boundaryAnnotationManager.delete(new ArrayList<>(boundaryAnnotations));
         }
 
         boundaryAnnotations.clear();
@@ -4162,6 +4210,42 @@ private boolean addMarkerInternal(
             .withLineOpacity(pathLineOpacity);
 
         currentSegmentAnnotation = lineAnnotationManager.create(options);
+    }
+
+    /** Rebuilds the drawn path from stored geometry; annotations are only a view of it. */
+    private void redrawPathAnnotations() {
+        if (!ensureLineAnnotationManager()) {
+            return;
+        }
+        for (PolylineAnnotation ann : pathAnnotations) {
+            lineAnnotationManager.delete(ann);
+        }
+        pathAnnotations.clear();
+        if (currentSegmentAnnotation != null) {
+            lineAnnotationManager.delete(currentSegmentAnnotation);
+            currentSegmentAnnotation = null;
+        }
+
+        // A loaded path has no recorded segments; draw its points as one line.
+        List<List<Point>> lines = pathSegments.isEmpty()
+                && (currentSegment == null || currentSegment.isEmpty())
+            ? Collections.singletonList(pathPoints)
+            : pathSegments;
+        List<PolylineAnnotationOptions> lineOptions = new ArrayList<>();
+        for (List<Point> line : lines) {
+            if (line.size() < 2) {
+                continue;
+            }
+            lineOptions.add(new PolylineAnnotationOptions()
+                .withGeometry(LineString.fromLngLats(line))
+                .withLineColor(pathLineColor)
+                .withLineWidth(pathLineWidth)
+                .withLineOpacity(pathLineOpacity));
+        }
+        if (!lineOptions.isEmpty()) {
+            pathAnnotations.addAll(lineAnnotationManager.create(lineOptions));
+        }
+        updatePathAnnotation();
     }
 
     private void startPathTracking(JSONObject options, CallbackContext callback) {
@@ -4372,6 +4456,8 @@ private boolean addMarkerInternal(
             // when invalid points are skipped.
             List<Point> validPoints = new ArrayList<>();
             List<Integer> validIndexes = new ArrayList<>();
+            // A loaded path replaces any live segment.
+            if (currentSegment != null) currentSegment.clear();
             for (int i = 0; i < pointsArray.length(); i++) {
                 JSONObject pointObj = pointsArray.optJSONObject(i);
                 if (pointObj == null) continue;
@@ -4457,7 +4543,9 @@ private boolean addMarkerInternal(
             }
             pathAnnotations.clear();
             pathPoints.clear();
+            // Segment indices returned by stopPathTracking must match the points.
             pathSegments.clear();
+            if (currentSegment != null) currentSegment.clear();
             callback.success();
         });
     }
@@ -4470,8 +4558,6 @@ private boolean addMarkerInternal(
             }
 
             boolean visible = options.optBoolean("visible", true);
-            boolean wasVisible = isPathVisible;
-
             isPathVisible = visible;
 
             if (!visible) {
@@ -4487,12 +4573,8 @@ private boolean addMarkerInternal(
                 }
                 pathAnnotations.clear();
             } else {
-                // Show: bring back the finished segments (only if they were hidden, so a
-                // repeated call does not stack duplicates), then the live segment.
-                if (!wasVisible) {
-                    drawSegmentAnnotations();
-                }
-                updatePathAnnotation();
+                // Show: redraw frozen segments or the loaded path, then the live segment
+                redrawPathAnnotations();
             }
 
             callback.success();

@@ -95,8 +95,9 @@ test('markers accept imageUrl and pinColor on both platforms and reject disallow
   assert.match(iosAdd, /options\["pinColor"\]/);
   assert.match(iosLoad, /marker\["ImageUrl"\]/);
   assert.match(iosLoad, /marker\["PinColor"\]/);
-  assert.match(ios, /marker\.iconSize = 0\.5/);
-  assert.match(android, /\.withIconSize\(0\.5\)/);
+  // Classic pins render at 0.5; photo pins use their own 0.27 scale.
+  assert.match(ios, /marker\.iconSize = style\.photo \? 0\.27 : 0\.5/);
+  assert.match(android, /\.withIconSize\(style\.photo \? 0\.27 : 0\.5\)/);
   assert.match(ios, /MAPBOX_ALLOWED_MARKER_IMAGE_HOSTS/);
 });
 

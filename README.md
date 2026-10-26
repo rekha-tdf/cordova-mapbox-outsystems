@@ -66,9 +66,11 @@ Set the consuming iOS application's minimum deployment target explicitly to **14
 - Closing the map (including the native Close button) or resetting the WebView stops location/heading services, cancels downloads and pending permission actions, and clears map-session data and callbacks. Re-register callbacks after initializing a new map session.
 - `MAPBOX_ACCESS_TOKEN` must be a public `pk.*` token. Both platform builds reject configured secret tokens. Initialization always reads the current configuration and removes legacy cached values, so token rotation works after app upgrades. Unconfigured build templates may still be prepared, but cannot initialize the map.
 - Style URLs must be `mapbox://styles/<owner>/<style>` or HTTPS on an explicitly approved host. `MAPBOX_ALLOWED_STYLE_HOSTS` is a comma-separated build preference, defaulting to `api.mapbox.com`. Configure additional trusted style hosts through OutSystems Extensibility Configuration. Credentials in URLs, non-443 ports, fragments, HTTP and local-file URLs are rejected. Only allow hosts serving trusted styles: this entry-point policy does not inspect redirects or every resource referenced by a style.
-- Marker `imageUrl` values must be HTTPS URLs or base64 `data:image/(png|jpeg|webp|gif)` URIs, up to 1 MiB of image data. `MAPBOX_ALLOWED_MARKER_IMAGE_HOSTS` is an optional comma-separated build preference; when set, only those hosts (including redirect targets) are allowed. When empty (the default), any HTTPS host is allowed.
+- Marker `imageUrl` values must be HTTPS URLs or base64 `data:image/(png|jpeg|webp|gif)` URIs, up to 1 MiB of image data. `MAPBOX_ALLOWED_MARKER_IMAGE_HOSTS` is an optional comma-separated build preference; when set, only those hosts (including redirect targets) are allowed. When empty (the default), any HTTPS host is allowed; set it for production builds. Android follows at most three redirects and checks each target before connecting to it. Images wider or taller than 4096 px, or larger than 4 megapixels, are rejected before decoding.
+- Numeric options that are not finite numbers, such as the strings `"NaN"` or `"Infinity"`, fall back to their defaults on both platforms. `flyTo` durations are limited to 0-10,000 ms, line widths to 0-50 and opacities to 0-1.
 - Native inputs are limited to approximately 4 MiB; at most 10,000 markers may exist at once, with marker IDs limited to 256 characters/bytes. Boundary batches allow 1,000 boundaries and 20,000 total vertices. Imported paths allow 2–20,000 points. Tracking stops location updates at the recording limit; call `stopPathTracking()` to retrieve the retained points. Stopping an empty recording returns an empty path with zero distance.
 - Offline zooms must be between 2 and 18, with `minZoom <= maxZoom`; invalid values are rejected. Both circle and rectangle downloads are checked against a conservative bounding-box diagonal of 100 km and an estimated 50,000-tile budget (including lower zooms). This can reject large/high-zoom requests that older releases accepted. Polar and antimeridian-crossing bounds are rejected. The budget is an estimate, not a byte quota; Mapbox's tile-store constraints still apply. The consuming app should manage retained offline regions and its storage budget.
+- `deleteOfflineRegion` keeps the region's style pack unless you pass `deleteStylePack: true`, because other offline regions usually use the same style. Earlier releases deleted it by default.
 - Style URLs and underlying SDK error details are no longer included in plugin diagnostic logs.
 
 From a development Git checkout, run `npm test` for the bridge and build-hook regressions. The `Native security regression tests` workflow also compiles/runs the Java and Swift input policy, executes the actual iOS empty-path method with a minimal host, and parses the iOS plugin sources. These checks do not replace device testing or a build of your consuming OutSystems application with its exact Cordova and Mapbox dependencies.
@@ -197,7 +199,7 @@ the separate 2â€“18 range and existing defaults of 10/16.
 
 Map viewport, resize, touch-region, and offline-selection rectangles use WebView-local native pixels on both platforms. Convert CSS viewport coordinates by multiplying them by `window.devicePixelRatio`; iOS converts those values to UIKit points internally without guessing from the rectangle size.
 
-`trackCamera` accepts either a boolean or the strings `"true"`/`"false"` on both platforms. Marker IDs may be strings or JSON numbers and are returned as strings. `setPathVisibility` is idempotent when no path has been loaded.
+`trackCamera` accepts either a boolean or the strings `"true"`/`"false"` on both platforms. Marker IDs may be strings or JSON numbers and are returned as strings. `setPathVisibility` is idempotent when no path has been loaded. Showing paths again redraws earlier recorded segments and any loaded path, not only the live segment. `clearPaths()` also resets the segment boundaries that `stopPathTracking()` returns.
 
 Registering `onLocationAccuracyChanged` requests location permission when needed and starts an independent accuracy monitor on both platforms. The monitor stops when the map plugin closes; user tracking and path tracking may be enabled or disabled independently.
 
@@ -971,6 +973,17 @@ From a development checkout, run `python3 tests/check-package.py` to verify the 
 
 The known rollback revision is `f88b385f0dae6382d2c8fcca80a438be1a68404b`. This packaging change preserves its history. To generate the original rollback package, use that exact revision instead of `HEAD`; it retains the packaging rules and contents of that revision.
 
+## iOS Location Prompt
+
+Set `LOCATION_USAGE_DESCRIPTION` to the text iOS shows when asking for location access. It defaults to the Realm Mapping wording, so other apps should set their own:
+
+```json
+{
+  "name": "LOCATION_USAGE_DESCRIPTION",
+  "value": "Your App uses your location to show your position on the map."
+}
+```
+
 ## SDK Versions
 
 - Android uses Mapbox Maps `11.30.0` by default.
@@ -985,7 +998,11 @@ The Android build filters native libraries to production device ABIs by default:
 arm64-v8a,armeabi-v7a
 ```
 
-Override this in OutSystems only when needed:
+This filter applies to every native library in the app, not only Mapbox. Set the value to `all` to keep every ABI, for example to support x86_64 Chromebooks. The plugin reads `MAPBOX_ANDROID_ABIS` and `MAPBOX_ANDROID_VERSION` from the generated `config.xml`; a Gradle property or environment variable of the same name takes precedence. Unknown ABI names and non-exact versions such as `11.+` fail the build.
+
+The plugin does not enable R8 minification or resource shrinking. Cordova loads plugin classes by name, so turning shrinking on is left to the app, together with keep rules for its plugins.
+
+Override the ABIs in OutSystems only when needed:
 
 ```json
 {
