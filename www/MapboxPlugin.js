@@ -124,11 +124,17 @@ function stopLegacyTouchBridge() {
   });
 }
 
+// Android, iOS and JS must agree on the unit: measure UTF-8 bytes, not UTF-16 units.
+function utf8Length(text) {
+  if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(text).length;
+  return unescape(encodeURIComponent(text)).length;
+}
+
 function call(action, args) {
   return new Promise(function (resolve, reject) {
     try {
       var json = JSON.stringify(args || []);
-      if (json.length > 4 * 1024 * 1024) throw new Error('Map input exceeds the 4 MiB limit.');
+      if (utf8Length(json) > 4 * 1024 * 1024) throw new Error('Map input exceeds the 4 MiB limit.');
       var options = (args || [])[0] || {};
       if (action === 'downloadOfflineRegion' || action === 'downloadOfflineRegionForRect') {
         var minZoom = options.minZoom === undefined ? 10 : Number(options.minZoom);
@@ -430,7 +436,7 @@ var api = {
   },
 
   loadMarkers: function (markers, options) {
-    options = options || {};
+    options = Object.assign({}, options);
     options.markers = markers || [];
     var MAX_MARKERS = 10000;
     if (options.markers.length > MAX_MARKERS) {
@@ -457,7 +463,7 @@ var api = {
 
   loadBoundaries: function (boundaries, options) {
     if (typeof boundaries === 'string') {
-      if (boundaries.length > 4 * 1024 * 1024) {
+      if (utf8Length(boundaries) > 4 * 1024 * 1024) {
         return Promise.reject(new Error('Boundary input is too large.'));
       }
 
@@ -581,9 +587,9 @@ var api = {
   },
 
   loadPath: function (pathData, options) {
-    options = options || {};
+    options = Object.assign({}, options);
     if (typeof pathData === 'string') {
-      if (pathData.length > 4 * 1024 * 1024) return Promise.reject(new Error('Path input is too large.'));
+      if (utf8Length(pathData) > 4 * 1024 * 1024) return Promise.reject(new Error('Path input is too large.'));
       try {
         pathData = JSON.parse(pathData);
       } catch (error) {

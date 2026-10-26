@@ -1,1 +1,10 @@
 src/android/MapBoxSDKWorkSpace.code-workspace
+node_modules/
+platforms/
+.env
+.env.*
+*.apk
+*.aab
+*.ipa
+*.keystore
+*.jks

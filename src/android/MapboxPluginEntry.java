@@ -3523,7 +3523,7 @@ private boolean addMarkerInternal(
                 removeMarkerInternal(id);
                 callback.success();
             } catch (Exception e) {
-                callback.error("Failed to remove marker: " + e.getMessage());
+                callback.error("Failed to remove marker.");
             }
         });
     }
@@ -3691,8 +3691,7 @@ private boolean addMarkerInternal(
                 callback.success();
             } catch (Throwable e) {
                 callback.error(
-                    "Failed to change layer visibility: " +
-                    (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName())
+                    "Failed to change layer visibility."
                 );
             }
         });
@@ -3898,8 +3897,7 @@ private boolean addMarkerInternal(
                 callback.success(ids);
             } catch (Throwable e) {
                 callback.error(
-                    "Failed to list layers: " +
-                    (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName())
+                    "Failed to list layers."
                 );
             }
         });
