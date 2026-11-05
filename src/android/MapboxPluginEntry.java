@@ -669,7 +669,7 @@ if (gestures != null) {
     private void setViewport(JSONObject options, CallbackContext callback) {
         runForSession(() -> {
             if (rootView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized in setviewport.");
                 return;
             }
 
@@ -682,7 +682,7 @@ if (gestures != null) {
     private void resizeMap(JSONObject options, CallbackContext callback) {
         runForSession(() -> {
             if (rootView == null || mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized in resizemap.");
                 return;
             }
 
@@ -776,7 +776,7 @@ if (gestures != null) {
     private void setCamera(JSONObject options, CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized in setcamera.");
                 return;
             }
 
@@ -802,7 +802,7 @@ if (gestures != null) {
     private void flyTo(JSONObject options, CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized in flyto.");
                 return;
             }
 
@@ -840,7 +840,7 @@ if (gestures != null) {
     private void enableUserLocation(CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized in enableuserlocation.");
                 return;
             }
 
@@ -898,7 +898,7 @@ if (gestures != null) {
     private void setDeviceHeadingEnabled(JSONObject options, CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized setDeviceHeadingEnabled.");
                 return;
             }
 
@@ -933,7 +933,7 @@ if (gestures != null) {
     private void setHeadingFollowMode(JSONObject options, CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized setHeadingFollowMode.");
                 return;
             }
 
@@ -1060,7 +1060,7 @@ if (gestures != null) {
     private void setUserTrackingEnabled(JSONObject options, CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized setUserTrackingEnabled.");
                 return;
             }
 
@@ -1744,7 +1744,7 @@ if (gestures != null) {
         isCameraFollowingUser = true;    
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized  moveToCurrentLocation.");
                 return;
             }
 
@@ -1922,7 +1922,7 @@ if (gestures != null) {
                 sendOfflineProgress("native-entered", 0, 100);
 
                 if (mapView == null) {
-                    callback.error("Map is not initialized.");
+                    callback.error("Map is not initialized downloadOfflineRegion.");
                     return;
                 }
 
@@ -1971,7 +1971,7 @@ if (gestures != null) {
                 sendOfflineProgress("native-entered", 0, 100);
 
                 if (mapView == null) {
-                    callback.error("Map is not initialized.");
+                    callback.error("Map is not initialized downloadOfflineRegionForRect.");
                     return;
                 }
 
@@ -2211,7 +2211,7 @@ if (gestures != null) {
     private void showOfflineRegion(JSONObject options, CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized showOfflineRegion.");
                 return;
             }
 
@@ -2456,7 +2456,7 @@ if (gestures != null) {
     private void resetMapBearing(CallbackContext callback) {
         cordova.getActivity().runOnUiThread(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized resetMapBearing.");
                 return;
             }
 
@@ -2746,7 +2746,7 @@ if (gestures != null) {
     private void addMarker(JSONObject options, CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized addMarker.");
                 return;
             }
 
@@ -2789,7 +2789,7 @@ if (gestures != null) {
     private void loadMarkers(JSONObject options, CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized loadMarkers.");
                 return;
             }
 
@@ -3060,7 +3060,7 @@ private boolean addMarkerInternal(
     private void loadBoundaries(JSONObject options, CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized loadBoundaries.");
                 return;
             }
 
@@ -3133,7 +3133,7 @@ private boolean addMarkerInternal(
 
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized setLayerVisibility.");
                 return;
             }
 
@@ -3169,7 +3169,7 @@ private boolean addMarkerInternal(
     private void getLayerIds(CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized getLayerIds.");
                 return;
             }
 
@@ -3401,7 +3401,7 @@ private boolean addMarkerInternal(
     private void startPathTracking(JSONObject options, CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized startPathTracking.");
                 return;
             }
 
@@ -3578,7 +3578,7 @@ private boolean addMarkerInternal(
     private void loadPath(JSONObject options, CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized loadPath.");
                 return;
             }
 
@@ -3699,7 +3699,7 @@ private boolean addMarkerInternal(
     private void setPathVisibility(JSONObject options, CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized setPathVisibility.");
                 return;
             }
 
@@ -3746,7 +3746,7 @@ private boolean addMarkerInternal(
     private void getCamera(CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized getCamera.");
                 return;
             }
 
@@ -3910,7 +3910,7 @@ private boolean addMarkerInternal(
     private void setMapStyle(JSONObject options, CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized.");
+                callback.error("Map is not initialized setMapStyle.");
                 return;
             }
 
