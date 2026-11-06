@@ -290,6 +290,16 @@ var api = {
     exec(callback, errorCallback || function () {}, SERVICE, 'registerMarkerClickCallback', []);
   },
 
+  onMapTap: function (callback, errorCallback) {
+    exec(
+      callback,
+      errorCallback || function () {},
+      SERVICE,
+      'registerMapTapCallback',
+      []
+    );
+  },
+
   onTrackingStatusChanged: function (callback, errorCallback) {
     exec(callback, errorCallback || function () {}, SERVICE, 'registerTrackingStatusCallback', []);
   },
@@ -463,4 +473,3 @@ if (typeof window !== 'undefined') {
 }
 
 module.exports = api;
-

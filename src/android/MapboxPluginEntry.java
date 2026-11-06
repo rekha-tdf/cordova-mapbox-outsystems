@@ -242,6 +242,7 @@ private static final float MAX_ACCEPTABLE_ACCURACY_METERS = 25.0f;
     private List<Point> currentSegment = null;
     private CallbackContext waypointSelectedCallback;
     private CallbackContext markerClickCallback;
+    private CallbackContext mapTapCallback;
     private CallbackContext offlineDownloadProgressCallback;
     private OfflineManager activeOfflineManager;
     private TileStore activeOfflineTileStore;
@@ -391,6 +392,9 @@ private static final float MAX_ACCEPTABLE_ACCURACY_METERS = 25.0f;
                 return true;
             case "registerMarkerClickCallback":
                 registerMarkerClickCallback(callbackContext);
+                return true;
+            case "registerMapTapCallback":
+                registerMapTapCallback(callbackContext);
                 return true;
             case "registerTrackingStatusCallback":
                 registerTrackingStatusCallback(callbackContext);
@@ -2319,6 +2323,14 @@ if (gestures != null) {
         callback.sendPluginResult(result);
     }
 
+    private void registerMapTapCallback(CallbackContext callback) {
+        releaseCallback(mapTapCallback);
+        mapTapCallback = callback;
+        PluginResult result = new PluginResult(PluginResult.Status.NO_RESULT);
+        result.setKeepCallback(true);
+        callback.sendPluginResult(result);
+    }
+
     private void registerTrackingStatusCallback(CallbackContext callback) {
         releaseCallback(trackingStatusCallback);
         trackingStatusCallback = callback;
@@ -2570,8 +2582,26 @@ if (gestures != null) {
             return true;
         }
 
+        if (sendMarkerClickIfNear(point)) {
+            lastMapSelectionCallbackMs = now;
+            return true;
+        }
+
+        if (mapTapCallback != null) {
+            try {
+                JSONObject payload = new JSONObject();
+                payload.put("type", "mapTapped");
+                payload.put("latitude", point.latitude());
+                payload.put("longitude", point.longitude());
+                sendKeepCallback(mapTapCallback, payload);
+                lastMapSelectionCallbackMs = now;
+            } catch (Exception e) {
+                Log.e("MapboxPlugin", "Map tap callback failed", e);
+            }
+        }
+
         if (!waypointSelectionEnabled) {
-            return false;
+            return mapTapCallback != null;
         }
 
         String id = "";
@@ -4105,6 +4135,7 @@ private boolean addMarkerInternal(
         pendingMarkerImages.clear();
         waypointSelectedCallback = null;
         markerClickCallback = null;
+        mapTapCallback = null;
         offlineDownloadProgressCallback = null;
         trackingStatusCallback = null;
         locationAccuracyCallback = null;
@@ -4398,7 +4429,4 @@ private boolean addMarkerInternal(
         super.onReset();
     }
 }
-
-
-
 
