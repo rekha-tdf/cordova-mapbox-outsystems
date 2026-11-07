@@ -395,6 +395,22 @@ var api = {
     return call('clearBoundaries', []);
   },
 
+  startBoundaryDrawing: function () {
+    return call('startBoundaryDrawing', [{}]);
+  },
+
+  undoBoundaryPoint: function () {
+    return call('undoBoundaryPoint', []);
+  },
+
+  saveBoundaryDrawing: function (options) {
+    return call('saveBoundaryDrawing', [options || {}]);
+  },
+
+  cancelBoundaryDrawing: function () {
+    return call('cancelBoundaryDrawing', []);
+  },
+
   getCamera: function () {
     return call('getCamera', []);
   },

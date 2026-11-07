@@ -214,6 +214,17 @@ private static final float MAX_ACCEPTABLE_ACCURACY_METERS = 25.0f;
     private PolygonAnnotationManager boundaryAnnotationManager;
     private final List<PolygonAnnotationOptions> boundaryAnnotationOptions = new ArrayList<>();
     private final List<PolygonAnnotation> boundaryAnnotations = new ArrayList<>();
+    private boolean isBoundaryDrawing = false;
+    private final List<Point> boundaryDrawingPoints = new ArrayList<>();
+    private PolylineAnnotationManager boundaryDrawingLineManager;
+    private PolylineAnnotation boundaryDrawingLine;
+    private PointAnnotationManager boundaryDrawingPointManager;
+    private final List<PointAnnotation> boundaryDrawingPointAnnotations = new ArrayList<>();
+    private PolygonAnnotationManager boundaryDrawingPolygonManager;
+    private PolygonAnnotation boundaryDrawingPolygon;
+    private static final int DEFAULT_BOUNDARY_DRAWING_COLOR = Color.RED;
+    private static final double DEFAULT_BOUNDARY_LINE_WIDTH = 2.0;
+    private static final double DEFAULT_BOUNDARY_FILL_OPACITY = 0.30;
     private final Map<String, String> markerRecordIds = new HashMap<>();
     private final Map<String, PointAnnotation> markerAnnotationsByRecordId = new HashMap<>();
     private final Map<String, Point> markerPointsByRecordId = new HashMap<>();
@@ -440,6 +451,18 @@ private static final float MAX_ACCEPTABLE_ACCURACY_METERS = 25.0f;
                 return true;
             case "clearBoundaries":
                 clearBoundaries(callbackContext);
+                return true;
+            case "startBoundaryDrawing":
+                startBoundaryDrawing(options, callbackContext);
+                return true;
+            case "undoBoundaryPoint":
+                undoBoundaryPoint(callbackContext);
+                return true;
+            case "saveBoundaryDrawing":
+                saveBoundaryDrawing(options, callbackContext);
+                return true;
+            case "cancelBoundaryDrawing":
+                cancelBoundaryDrawing(callbackContext);
                 return true;
             case "startPathTracking":
                 startPathTracking(options, callbackContext);
@@ -2578,6 +2601,12 @@ if (gestures != null) {
 
     private boolean handleMapPointSelected(Point point) {
         long now = System.currentTimeMillis();
+        if (isBoundaryDrawing) {
+            addBoundaryDrawingPoint(point);
+            lastMapSelectionCallbackMs = now;
+            return true;
+        }
+
         if (now - lastMapSelectionCallbackMs < 400L) {
             return true;
         }
@@ -2720,6 +2749,239 @@ if (gestures != null) {
         }
 
         boundaryAnnotationManager = PolygonAnnotationManagerKt.createPolygonAnnotationManager(annotationPlugin, null);
+        return true;
+    }
+
+    private void startBoundaryDrawing(JSONObject options, CallbackContext callback) {
+        runForSession(() -> {
+            if (mapView == null) {
+                callback.error("Map is not initialized.");
+                return;
+            }
+
+            if (!ensureBoundaryDrawingLineManager()
+                    || !ensureBoundaryDrawingPointManager()
+                    || !ensureBoundaryAnnotationManager()) {
+                callback.error("Unable to initialize drawing managers.");
+                return;
+            }
+
+            clearBoundaryDrawingInternal();
+
+            isBoundaryDrawing = true;
+
+            callback.success();
+        });
+    }
+
+    private void addBoundaryDrawingPoint(Point point) {
+        if (!isBoundaryDrawing || point == null) return;
+
+        boundaryDrawingPoints.add(point);
+
+        redrawBoundaryDrawing();
+    }
+
+    private void undoBoundaryPoint(CallbackContext callback) {
+        runForSession(() -> {
+            if (!isBoundaryDrawing) {
+                callback.error("Boundary drawing is not active.");
+                return;
+            }
+
+            if (!boundaryDrawingPoints.isEmpty()) {
+                boundaryDrawingPoints.remove(
+                    boundaryDrawingPoints.size() - 1
+                );
+            }
+
+            redrawBoundaryDrawing();
+
+            callback.success();
+        });
+    }
+
+    private void saveBoundaryDrawing(
+        JSONObject options,
+        CallbackContext callback
+    ) {
+        runForSession(() -> {
+            if (!isBoundaryDrawing) {
+                callback.error("Boundary drawing is not active.");
+                return;
+            }
+
+            if (boundaryDrawingPoints.size() < 3) {
+                callback.error("At least 3 points are required.");
+                return;
+            }
+
+            try {
+                JSONArray coordinates = new JSONArray();
+
+                for (Point point : boundaryDrawingPoints) {
+                    JSONObject coordinate = new JSONObject();
+
+                    coordinate.put("lat", point.latitude());
+                    coordinate.put("lon", point.longitude());
+
+                    coordinates.put(coordinate);
+                }
+
+                JSONObject result = new JSONObject();
+
+                result.put("name", options.optString("name", ""));
+                result.put("geometry", coordinates);
+                result.put("count", boundaryDrawingPoints.size());
+
+                isBoundaryDrawing = false;
+
+                callback.success(result);
+            } catch (Exception e) {
+                callback.error("Failed to save boundary coordinates.");
+            }
+        });
+    }
+
+    private void cancelBoundaryDrawing(CallbackContext callback) {
+        runForSession(() -> {
+            clearBoundaryDrawingInternal();
+            callback.success();
+        });
+    }
+
+    private void clearBoundaryDrawingInternal() {
+        isBoundaryDrawing = false;
+
+        boundaryDrawingPoints.clear();
+
+        if (boundaryDrawingLine != null
+                && boundaryDrawingLineManager != null) {
+            boundaryDrawingLineManager.delete(boundaryDrawingLine);
+            boundaryDrawingLine = null;
+        }
+
+        if (boundaryDrawingPointManager != null) {
+            for (PointAnnotation annotation :
+                    new ArrayList<>(boundaryDrawingPointAnnotations)) {
+                boundaryDrawingPointManager.delete(annotation);
+            }
+        }
+
+        boundaryDrawingPointAnnotations.clear();
+
+        if (boundaryDrawingPolygon != null
+                && boundaryDrawingPolygonManager != null) {
+            boundaryDrawingPolygonManager.delete(boundaryDrawingPolygon);
+            boundaryDrawingPolygon = null;
+        }
+    }
+
+    private void redrawBoundaryDrawing() {
+        if (boundaryDrawingLineManager == null
+                || boundaryDrawingPointManager == null) {
+            return;
+        }
+
+        if (boundaryDrawingLine != null) {
+            boundaryDrawingLineManager.delete(boundaryDrawingLine);
+            boundaryDrawingLine = null;
+        }
+
+        for (PointAnnotation annotation :
+                new ArrayList<>(boundaryDrawingPointAnnotations)) {
+            boundaryDrawingPointManager.delete(annotation);
+        }
+
+        boundaryDrawingPointAnnotations.clear();
+
+        if (boundaryDrawingPolygon != null
+                && boundaryDrawingPolygonManager != null) {
+            boundaryDrawingPolygonManager.delete(boundaryDrawingPolygon);
+            boundaryDrawingPolygon = null;
+        }
+
+        if (boundaryDrawingPoints.isEmpty()) return;
+
+        if (boundaryDrawingPoints.size() >= 2) {
+            boundaryDrawingLine =
+                boundaryDrawingLineManager.create(
+                    new PolylineAnnotationOptions()
+                        .withPoints(new ArrayList<>(boundaryDrawingPoints))
+                        .withLineColor("#FF0000")
+                        .withLineWidth(DEFAULT_BOUNDARY_LINE_WIDTH)
+                );
+        }
+
+        for (Point point : boundaryDrawingPoints) {
+            PointAnnotationOptions pointOptions =
+                new PointAnnotationOptions()
+                    .withPoint(point)
+                    .withCircleColor("#FF0000")
+                    .withCircleRadius(6.0)
+                    .withCircleStrokeColor("#FFFFFF")
+                    .withCircleStrokeWidth(2.0);
+
+            boundaryDrawingPointAnnotations.add(
+                boundaryDrawingPointManager.create(pointOptions)
+            );
+        }
+
+        if (boundaryDrawingPoints.size() >= 3) {
+            List<Point> closedRing =
+                new ArrayList<>(boundaryDrawingPoints);
+
+            closedRing.add(boundaryDrawingPoints.get(0));
+
+            if (ensureBoundaryAnnotationManager()) {
+                boundaryDrawingPolygonManager = boundaryAnnotationManager;
+                boundaryDrawingPolygon =
+                    boundaryDrawingPolygonManager.create(
+                        new PolygonAnnotationOptions()
+                            .withPoints(Collections.singletonList(closedRing))
+                            .withFillColor("#FF0000")
+                            .withFillOpacity(DEFAULT_BOUNDARY_FILL_OPACITY)
+                            .withFillOutlineColor("#FF0000")
+                    );
+            }
+        }
+    }
+
+    private boolean ensureBoundaryDrawingLineManager() {
+        if (mapView == null) return false;
+
+        if (boundaryDrawingLineManager != null) return true;
+
+        AnnotationPlugin annotationPlugin =
+            mapView.getPlugin(Plugin.MAPBOX_ANNOTATION_PLUGIN_ID);
+
+        if (annotationPlugin == null) return false;
+
+        boundaryDrawingLineManager =
+            PolylineAnnotationManagerKt.createPolylineAnnotationManager(
+                annotationPlugin,
+                null
+            );
+
+        return true;
+    }
+
+    private boolean ensureBoundaryDrawingPointManager() {
+        if (mapView == null) return false;
+
+        if (boundaryDrawingPointManager != null) return true;
+
+        AnnotationPlugin annotationPlugin =
+            mapView.getPlugin(Plugin.MAPBOX_ANNOTATION_PLUGIN_ID);
+
+        if (annotationPlugin == null) return false;
+
+        boundaryDrawingPointManager =
+            PointAnnotationManagerKt.createPointAnnotationManager(
+                annotationPlugin,
+                null
+            );
+
         return true;
     }
 
