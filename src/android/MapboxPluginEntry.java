@@ -63,6 +63,10 @@ import com.mapbox.maps.extension.style.layers.properties.PropertyValue;
 import com.mapbox.maps.plugin.PuckBearing;
 import com.mapbox.maps.plugin.Plugin;
 import com.mapbox.maps.plugin.annotation.AnnotationPlugin;
+import com.mapbox.maps.plugin.annotation.generated.CircleAnnotation;
+import com.mapbox.maps.plugin.annotation.generated.CircleAnnotationManager;
+import com.mapbox.maps.plugin.annotation.generated.CircleAnnotationManagerKt;
+import com.mapbox.maps.plugin.annotation.generated.CircleAnnotationOptions;
 import com.mapbox.maps.plugin.annotation.generated.PointAnnotation;
 import com.mapbox.maps.plugin.annotation.generated.OnPointAnnotationClickListener;
 import com.mapbox.maps.plugin.annotation.generated.PointAnnotationManager;
@@ -218,8 +222,8 @@ private static final float MAX_ACCEPTABLE_ACCURACY_METERS = 25.0f;
     private final List<Point> boundaryDrawingPoints = new ArrayList<>();
     private PolylineAnnotationManager boundaryDrawingLineManager;
     private PolylineAnnotation boundaryDrawingLine;
-    private PointAnnotationManager boundaryDrawingPointManager;
-    private final List<PointAnnotation> boundaryDrawingPointAnnotations = new ArrayList<>();
+    private CircleAnnotationManager boundaryDrawingPointManager;
+    private final List<CircleAnnotation> boundaryDrawingPointAnnotations = new ArrayList<>();
     private PolygonAnnotationManager boundaryDrawingPolygonManager;
     private PolygonAnnotation boundaryDrawingPolygon;
     private static final int DEFAULT_BOUNDARY_DRAWING_COLOR = Color.RED;
@@ -2862,7 +2866,7 @@ if (gestures != null) {
         }
 
         if (boundaryDrawingPointManager != null) {
-            for (PointAnnotation annotation :
+            for (CircleAnnotation annotation :
                     new ArrayList<>(boundaryDrawingPointAnnotations)) {
                 boundaryDrawingPointManager.delete(annotation);
             }
@@ -2888,7 +2892,7 @@ if (gestures != null) {
             boundaryDrawingLine = null;
         }
 
-        for (PointAnnotation annotation :
+        for (CircleAnnotation annotation :
                 new ArrayList<>(boundaryDrawingPointAnnotations)) {
             boundaryDrawingPointManager.delete(annotation);
         }
@@ -2914,8 +2918,8 @@ if (gestures != null) {
         }
 
         for (Point point : boundaryDrawingPoints) {
-            PointAnnotationOptions pointOptions =
-                new PointAnnotationOptions()
+            CircleAnnotationOptions pointOptions =
+                new CircleAnnotationOptions()
                     .withPoint(point)
                     .withCircleColor("#FF0000")
                     .withCircleRadius(6.0)
@@ -2977,7 +2981,7 @@ if (gestures != null) {
         if (annotationPlugin == null) return false;
 
         boundaryDrawingPointManager =
-            PointAnnotationManagerKt.createPointAnnotationManager(
+            CircleAnnotationManagerKt.createCircleAnnotationManager(
                 annotationPlugin,
                 null
             );
