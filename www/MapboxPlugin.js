@@ -300,6 +300,16 @@ var api = {
     );
   },
 
+  onBoundaryAreaChanged: function (callback, errorCallback) {
+    exec(
+      callback,
+      errorCallback || function () {},
+      SERVICE,
+      'registerBoundaryAreaCallback',
+      []
+    );
+  },
+
   onTrackingStatusChanged: function (callback, errorCallback) {
     exec(callback, errorCallback || function () {}, SERVICE, 'registerTrackingStatusCallback', []);
   },

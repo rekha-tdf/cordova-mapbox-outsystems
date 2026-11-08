@@ -218,6 +218,9 @@ private static final float MAX_ACCEPTABLE_ACCURACY_METERS = 25.0f;
     private PolygonAnnotationManager boundaryAnnotationManager;
     private final List<PolygonAnnotationOptions> boundaryAnnotationOptions = new ArrayList<>();
     private final List<PolygonAnnotation> boundaryAnnotations = new ArrayList<>();
+    // Stores polygons that have already been saved.
+    private final List<PolygonAnnotation> completedBoundaryDrawingPolygons =
+        new ArrayList<>();
     private boolean isBoundaryDrawing = false;
     private final List<Point> boundaryDrawingPoints = new ArrayList<>();
     private PolylineAnnotationManager boundaryDrawingLineManager;
@@ -258,6 +261,7 @@ private static final float MAX_ACCEPTABLE_ACCURACY_METERS = 25.0f;
     private CallbackContext waypointSelectedCallback;
     private CallbackContext markerClickCallback;
     private CallbackContext mapTapCallback;
+    private CallbackContext boundaryAreaCallback;
     private CallbackContext offlineDownloadProgressCallback;
     private OfflineManager activeOfflineManager;
     private TileStore activeOfflineTileStore;
@@ -410,6 +414,9 @@ private static final float MAX_ACCEPTABLE_ACCURACY_METERS = 25.0f;
                 return true;
             case "registerMapTapCallback":
                 registerMapTapCallback(callbackContext);
+                return true;
+            case "registerBoundaryAreaCallback":
+                registerBoundaryAreaCallback(callbackContext);
                 return true;
             case "registerTrackingStatusCallback":
                 registerTrackingStatusCallback(callbackContext);
@@ -2358,6 +2365,14 @@ if (gestures != null) {
         callback.sendPluginResult(result);
     }
 
+    private void registerBoundaryAreaCallback(CallbackContext callback) {
+        releaseCallback(boundaryAreaCallback);
+        boundaryAreaCallback = callback;
+        PluginResult result = new PluginResult(PluginResult.Status.NO_RESULT);
+        result.setKeepCallback(true);
+        callback.sendPluginResult(result);
+    }
+
     private void registerTrackingStatusCallback(CallbackContext callback) {
         releaseCallback(trackingStatusCallback);
         trackingStatusCallback = callback;
@@ -2665,6 +2680,12 @@ if (gestures != null) {
             return;
         }
 
+        // During boundary drawing, let Mapbox's gesture listener
+        // handle the tap. Avoid processing the same tap twice.
+        if (isBoundaryDrawing) {
+            return;
+        }
+
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
             rawTapDownX = event.getX();
             rawTapDownY = event.getY();
@@ -2784,6 +2805,7 @@ if (gestures != null) {
         boundaryDrawingPoints.add(point);
 
         redrawBoundaryDrawing();
+        notifyBoundaryAreaChanged();
     }
 
     private void undoBoundaryPoint(CallbackContext callback) {
@@ -2793,12 +2815,16 @@ if (gestures != null) {
                 return;
             }
 
-            if (!boundaryDrawingPoints.isEmpty()) {
-                boundaryDrawingPoints.remove(
-                    boundaryDrawingPoints.size() - 1
-                );
+            if (boundaryDrawingPoints.isEmpty()) {
+                callback.error("No points available to undo.");
+                return;
             }
 
+            // Remove only the most recently added vertex.
+            int lastIndex = boundaryDrawingPoints.size() - 1;
+            boundaryDrawingPoints.remove(lastIndex);
+
+            // Rebuild the drawing using the remaining vertices.
             redrawBoundaryDrawing();
 
             callback.success();
@@ -2837,7 +2863,40 @@ if (gestures != null) {
                 result.put("name", options.optString("name", ""));
                 result.put("geometry", coordinates);
                 result.put("count", boundaryDrawingPoints.size());
+                result.put(
+                    "areaAcres",
+                    calculateBoundaryAreaAcres(boundaryDrawingPoints)
+                );
 
+                // Preserve the completed polygon on the map.
+                if (boundaryDrawingPolygon != null) {
+                    completedBoundaryDrawingPolygons.add(
+                        boundaryDrawingPolygon
+                    );
+
+                    // Detach it from the active drawing session.
+                    boundaryDrawingPolygon = null;
+                }
+
+                // Remove only the active drawing line.
+                if (boundaryDrawingLine != null
+                        && boundaryDrawingLineManager != null) {
+                    boundaryDrawingLineManager.delete(boundaryDrawingLine);
+                    boundaryDrawingLine = null;
+                }
+
+                // Remove only the active vertex markers.
+                if (boundaryDrawingPointManager != null) {
+                    for (CircleAnnotation annotation :
+                            new ArrayList<>(boundaryDrawingPointAnnotations)) {
+                        boundaryDrawingPointManager.delete(annotation);
+                    }
+                }
+
+                boundaryDrawingPointAnnotations.clear();
+
+                // Reset active drawing state.
+                boundaryDrawingPoints.clear();
                 isBoundaryDrawing = false;
 
                 callback.success(result);
@@ -2845,6 +2904,54 @@ if (gestures != null) {
                 callback.error("Failed to save boundary coordinates.");
             }
         });
+    }
+
+    private double calculateBoundaryAreaAcres(List<Point> points) {
+        if (points == null || points.size() < 3) {
+            return 0.0;
+        }
+
+        final double earthRadius = 6378137.0;
+        double total = 0.0;
+
+        for (int i = 0; i < points.size(); i++) {
+            Point current = points.get(i);
+            Point next = points.get((i + 1) % points.size());
+
+            double lat1 = Math.toRadians(current.latitude());
+            double lat2 = Math.toRadians(next.latitude());
+
+            double lon1 = Math.toRadians(current.longitude());
+            double lon2 = Math.toRadians(next.longitude());
+
+            total += (lon2 - lon1) *
+                (2.0 + Math.sin(lat1) + Math.sin(lat2));
+        }
+
+        double areaSquareMeters =
+            Math.abs(total * earthRadius * earthRadius / 2.0);
+
+        return areaSquareMeters / 4046.8564224;
+    }
+
+    private void notifyBoundaryAreaChanged() {
+        if (boundaryAreaCallback == null) {
+            return;
+        }
+
+        try {
+            JSONObject result = new JSONObject();
+
+            double areaAcres =
+                calculateBoundaryAreaAcres(boundaryDrawingPoints);
+
+            result.put("areaAcres", areaAcres);
+            result.put("pointCount", boundaryDrawingPoints.size());
+
+            sendKeepCallback(boundaryAreaCallback, result);
+        } catch (Exception e) {
+            Log.e("MapboxPlugin", "Boundary area callback failed", e);
+        }
     }
 
     private void cancelBoundaryDrawing(CallbackContext callback) {
@@ -4314,6 +4421,7 @@ private boolean addMarkerInternal(
             if (!pending.isFinished()) {
                 boolean stream = pending == waypointSelectedCallback || pending == markerClickCallback
                     || pending == offlineDownloadProgressCallback || pending == trackingStatusCallback
+                    || pending == boundaryAreaCallback
                     || pending == locationAccuracyCallback || pending == compassCallback;
                 if (stream) releaseCallback(pending);
                 else pending.error("Map closed; operation cancelled.");
@@ -4695,4 +4803,3 @@ private boolean addMarkerInternal(
         super.onReset();
     }
 }
-
