@@ -3463,39 +3463,62 @@ private boolean addMarkerInternal(
     private void loadBoundaries(JSONObject options, CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
-                callback.error("Map is not initialized loadBoundaries.");
+                callback.error("Map is not initialized.");
                 return;
             }
 
-            JSONArray inputBoundaries = options.optJSONArray("boundaries");
+            JSONArray boundaries = options.optJSONArray("boundaries");
             int vertices = 0;
-            if (inputBoundaries != null) {
-                if (inputBoundaries.length() > MAX_BOUNDARIES) { callback.error("Too many boundaries."); return; }
-                for (int i = 0; i < inputBoundaries.length(); i++) {
-                    JSONObject boundary = inputBoundaries.optJSONObject(i);
-                    JSONArray ring = boundary == null ? null : boundary.optJSONArray("geometry");
+            if (boundaries != null) {
+                if (boundaries.length() > MAX_BOUNDARIES) {
+                    callback.error(
+                        "Too many boundaries: maximum allowed is "
+                            + MAX_BOUNDARIES + "."
+                    );
+                    return;
+                }
+
+                for (int i = 0; i < boundaries.length(); i++) {
+                    JSONObject boundary = boundaries.optJSONObject(i);
+                    JSONArray ring =
+                        boundary == null
+                            ? null
+                            : boundary.optJSONArray("geometry");
                     vertices += ring == null ? 0 : ring.length();
-                    if (vertices > MapboxSecurity.MAX_POINTS) { callback.error("Too many boundary vertices."); return; }
+                    if (vertices > MapboxSecurity.MAX_POINTS) {
+                        callback.error("Too many boundary vertices.");
+                        return;
+                    }
                 }
             }
+
             boundaryVisible = options.optBoolean("visible", true);
             boundaryAnnotationOptions.clear();
             clearBoundaryAnnotations();
 
-            JSONArray boundaries = options.optJSONArray("boundaries");
             if (boundaries != null) {
-                if (boundaries.length() > MAX_BOUNDARIES) {
-                    callback.error("Too many boundaries: maximum allowed is " + MAX_BOUNDARIES + ".");
-                    return;
-                }
-
-                String fillColor = options.optString("fillColor", "#2E7D32");
-                double fillOpacity = options.optDouble("fillOpacity", 0.18);
-                String lineColor = options.optString("lineColor", "#1B5E20");
+                String fillColor = options.optString(
+                    "fillColor",
+                    "#2E7D32"
+                );
+                double fillOpacity = options.optDouble(
+                    "fillOpacity",
+                    0.18
+                );
+                String lineColor = options.optString(
+                    "lineColor",
+                    "#1B5E20"
+                );
 
                 for (int i = 0; i < boundaries.length(); i++) {
                     JSONObject boundary = boundaries.optJSONObject(i);
-                    PolygonAnnotationOptions boundaryOptions = boundaryOptionsFromJson(boundary, fillColor, fillOpacity, lineColor);
+                    PolygonAnnotationOptions boundaryOptions =
+                        boundaryOptionsFromJson(
+                            boundary,
+                            fillColor,
+                            fillOpacity,
+                            lineColor
+                        );
                     if (boundaryOptions != null) {
                         boundaryAnnotationOptions.add(boundaryOptions);
                     }
@@ -3506,7 +3529,10 @@ private boolean addMarkerInternal(
 
             try {
                 JSONObject result = new JSONObject();
-                result.put("count", boundaryAnnotationOptions.size());
+                result.put(
+                    "count",
+                    boundaryAnnotationOptions.size()
+                );
                 callback.success(result);
             } catch (Exception e) {
                 callback.error(sanitizeError("An internal error occurred.", e));
@@ -3605,7 +3631,12 @@ private boolean addMarkerInternal(
         });
     }
 
-    private PolygonAnnotationOptions boundaryOptionsFromJson(JSONObject boundary, String fillColor, double fillOpacity, String lineColor) {
+    private PolygonAnnotationOptions boundaryOptionsFromJson(
+        JSONObject boundary,
+        String fillColor,
+        double fillOpacity,
+        String lineColor
+    ) {
         if (boundary == null) {
             return null;
         }
@@ -3622,10 +3653,25 @@ private boolean addMarkerInternal(
                 continue;
             }
 
-            double latitude = readFiniteDouble(coordinate, "lat", "latitude");
-            double longitude = readFiniteDouble(coordinate, "lon", "lng", "longitude");
-            if (!Double.isNaN(latitude) && !Double.isNaN(longitude) && isValidLatitude(latitude) && isValidLongitude(longitude)) {
-                ring.add(Point.fromLngLat(longitude, latitude));
+            double latitude = readFiniteDouble(
+                coordinate,
+                "lat",
+                "latitude"
+            );
+            double longitude = readFiniteDouble(
+                coordinate,
+                "lon",
+                "lng",
+                "longitude"
+            );
+
+            if (!Double.isNaN(latitude)
+                    && !Double.isNaN(longitude)
+                    && isValidLatitude(latitude)
+                    && isValidLongitude(longitude)) {
+                ring.add(
+                    Point.fromLngLat(longitude, latitude)
+                );
             }
         }
 
@@ -3633,9 +3679,11 @@ private boolean addMarkerInternal(
             return null;
         }
 
+        // Close polygon ring.
         Point firstPoint = ring.get(0);
         Point lastPoint = ring.get(ring.size() - 1);
-        if (firstPoint.latitude() != lastPoint.latitude() || firstPoint.longitude() != lastPoint.longitude()) {
+        if (firstPoint.latitude() != lastPoint.latitude()
+                || firstPoint.longitude() != lastPoint.longitude()) {
             ring.add(firstPoint);
         }
 
@@ -3688,6 +3736,7 @@ private boolean addMarkerInternal(
     }
 
     private void applyBoundaryVisibility() {
+
         if (!boundaryVisible) {
             clearBoundaryAnnotations();
             return;
@@ -3698,23 +3747,35 @@ private boolean addMarkerInternal(
         }
 
         clearBoundaryAnnotations();
+
         for (PolygonAnnotationOptions options : boundaryAnnotationOptions) {
-            boundaryAnnotations.add(boundaryAnnotationManager.create(options));
+
+            boundaryAnnotations.add(
+                boundaryAnnotationManager.create(options)
+            );
         }
     }
 
     private void clearBoundaryAnnotations() {
+
         if (boundaryAnnotationManager != null) {
-            for (PolygonAnnotation annotation : new ArrayList<>(boundaryAnnotations)) {
+
+            for (PolygonAnnotation annotation :
+                    new ArrayList<>(boundaryAnnotations)) {
+
                 boundaryAnnotationManager.delete(annotation);
             }
         }
+
         boundaryAnnotations.clear();
     }
 
     private void clearBoundariesInternal() {
+
         boundaryAnnotationOptions.clear();
+
         clearBoundaryAnnotations();
+
         boundaryVisible = true;
     }
 

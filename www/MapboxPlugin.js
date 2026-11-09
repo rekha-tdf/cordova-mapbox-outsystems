@@ -361,30 +361,45 @@ var api = {
   },
 
   loadBoundaries: function (boundaries, options) {
-    options = options || {};
     if (typeof boundaries === 'string') {
-      if (boundaries.length > 4 * 1024 * 1024) return Promise.reject(new Error('Boundary input is too large.'));
+      if (boundaries.length > 4 * 1024 * 1024) {
+        return Promise.reject(new Error('Boundary input is too large.'));
+      }
+
       try {
         boundaries = JSON.parse(boundaries);
       } catch (error) {
         return Promise.reject(new Error(
-          'Failed to parse boundaries: ' + (error.message || 'Invalid JSON.')
+          'Invalid boundaries JSON: ' + (error.message || 'Invalid JSON.')
         ));
       }
     }
-    if (!Array.isArray(boundaries)) {
-      return Promise.reject(new Error('Boundaries must be a JSON string or an array.'));
+
+    if (!Array.isArray(boundaries) && boundaries &&
+        typeof boundaries === 'object' && options === undefined) {
+      options = boundaries;
+      boundaries = options.boundaries;
     }
+
+    if (!Array.isArray(boundaries)) {
+      return Promise.reject(new Error(
+        'Invalid payload. Expected a boundaries array.'
+      ));
+    }
+
     var MAX_BOUNDARIES = 1000;
     if (boundaries.length > MAX_BOUNDARIES) {
       return Promise.reject(new Error('Too many boundaries: maximum allowed is ' + MAX_BOUNDARIES + '.'));
     }
+
     var vertices = 0;
     for (var i = 0; i < boundaries.length; i++) {
       var geometry = boundaries[i] && boundaries[i].geometry;
       vertices += Array.isArray(geometry) ? geometry.length : 0;
       if (vertices > 20000) return Promise.reject(new Error('Too many boundary vertices: maximum total is 20000.'));
     }
+
+    options = Object.assign({}, options || {});
     options.boundaries = boundaries;
     return call('loadBoundaries', [options]);
   },

@@ -28,6 +28,26 @@ test('geometry budgets apply to total vertices and path points', async () => {
   assert.equal(calls.length, 2, 'invalid inputs never reach Cordova');
 });
 
+test('loadBoundaries accepts options objects and JSON payloads while retaining the legacy form', async () => {
+  const { api, calls } = bridge();
+  const payload = {
+    boundaries: [{ geometry: [{ lat: 1, lon: 2 }] }],
+    visible: false,
+    fillColor: '#123456'
+  };
+
+  await api.loadBoundaries(payload);
+  await api.loadBoundaries(JSON.stringify(payload));
+  await api.loadBoundaries(payload.boundaries, { visible: false });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.map(call => call.args[0]))), [
+    payload,
+    payload,
+    { visible: false, boundaries: payload.boundaries }
+  ]);
+  await assert.rejects(api.loadBoundaries({ visible: true }), /boundaries array/);
+});
+
 test('zoom validation rejects overflow, nonfinite, reversed and out-of-range values', async () => {
   const { api, calls } = bridge();
   for (const action of ['downloadOfflineRegion', 'downloadOfflineRegionForRect']) {
@@ -42,7 +62,7 @@ test('zoom validation rejects overflow, nonfinite, reversed and out-of-range val
 test('byte budgets and invalid JSON fail before parsing/bridge dispatch', async () => {
   const { api, calls } = bridge();
   await assert.rejects(api.loadPath(' '.repeat(4 * 1024 * 1024 + 1)), /large/);
-  await assert.rejects(api.loadBoundaries('bad json'), /parse/);
+  await assert.rejects(api.loadBoundaries('bad json'), /Invalid boundaries JSON/);
   await assert.rejects(api.addMarker({ id: 'a'.repeat(4 * 1024 * 1024 + 1) }), /limit/);
   const cycle = {}; cycle.self = cycle;
   await assert.rejects(api.setCamera(cycle));
