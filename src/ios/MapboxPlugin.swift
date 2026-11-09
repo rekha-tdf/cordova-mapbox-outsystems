@@ -88,6 +88,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
     private var currentSegment: [CLLocationCoordinate2D] = []
     private var waypointSelectedCallbackId: String?
     private var markerClickCallbackId: String?
+    private var mapTapCallbackId: String?
     private var offlineDownloadProgressCallbackId: String?
     private var compassCallbackId: String?
     private var lastCompassBearing: Double = -1
@@ -114,6 +115,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
     private var lastKeepCallbackOfflineTs: TimeInterval = 0
     private var lastKeepCallbackWaypointTs: TimeInterval = 0
     private var lastKeepCallbackMarkerTs: TimeInterval = 0
+    private var lastKeepCallbackMapTapTs: TimeInterval = 0
     private let callbackRateLimit: TimeInterval = 0.1
     private let maxMarkers = 10000
     private let maxBoundaries = 1000
@@ -1645,6 +1647,13 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         sendNoResultKeepCallback(command)
     }
 
+    @objc(registerMapTapCallback:)
+    func registerMapTapCallback(command: CDVInvokedUrlCommand) {
+        rememberCommand(command)
+        mapTapCallbackId = command.callbackId
+        sendNoResultKeepCallback(command)
+    }
+
     @objc(registerOfflineDownloadProgressCallback:)
     func registerOfflineDownloadProgressCallback(command: CDVInvokedUrlCommand) {
         rememberCommand(command)
@@ -1758,6 +1767,8 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
                 return
             }
 
+            self.sendMapTap(context.coordinate)
+
             guard self.waypointSelectionEnabled else {
                 return
             }
@@ -1782,6 +1793,18 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
                 "longitude": context.coordinate.longitude
             ])
         }.store(in: &cancelables)
+    }
+
+    private func sendMapTap(_ coordinate: CLLocationCoordinate2D) {
+        guard mapTapCallbackId != nil else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastKeepCallbackMapTapTs >= callbackRateLimit else { return }
+        lastKeepCallbackMapTapTs = now
+        sendKeepCallback(mapTapCallbackId, payload: [
+            "type": "mapTapped",
+            "latitude": coordinate.latitude,
+            "longitude": coordinate.longitude
+        ])
     }
 
     private func addMarkerInternal(id: String, latitude: Double, longitude: Double, style: MarkerStyle = .default, publish: Bool = true) {
@@ -2162,6 +2185,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         currentSegment.removeAll()
         waypointSelectedCallbackId = nil
         markerClickCallbackId = nil
+        mapTapCallbackId = nil
         offlineDownloadProgressCallbackId = nil
         compassCallbackId = nil
         lastCompassBearing = -1
@@ -2180,6 +2204,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         lastKeepCallbackOfflineTs = 0
         lastKeepCallbackWaypointTs = 0
         lastKeepCallbackMarkerTs = 0
+        lastKeepCallbackMapTapTs = 0
         cancelables.removeAll()
         mapTouchOverlay?.removeFromSuperview()
         mapTouchOverlay = nil
@@ -2383,11 +2408,13 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
             return
         }
 
+        let coordinate = mapView.mapboxMap.coordinate(for: tapPoint)
+        sendMapTap(coordinate)
+
         guard waypointSelectionEnabled else {
             return
         }
 
-        let coordinate = mapView.mapboxMap.coordinate(for: tapPoint)
         var id = ""
 
         if autoAddWaypointMarker {
