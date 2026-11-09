@@ -71,6 +71,15 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         "Marker imageUrl must be an HTTPS URL on an allowed host or a base64 image data URI up to 1 MiB."
     private var boundaryAnnotationManager: PolygonAnnotationManager?
     private var boundaryAnnotations: [PolygonAnnotation] = []
+    private var isBoundaryDrawing = false
+    private var boundaryDrawingPoints: [CLLocationCoordinate2D] = []
+    private var boundaryDrawingLineAnnotationManager: PolylineAnnotationManager?
+    private var boundaryDrawingLine: PolylineAnnotation?
+    private var boundaryDrawingPointAnnotationManager: CircleAnnotationManager?
+    private var boundaryDrawingPointAnnotations: [CircleAnnotation] = []
+    private var boundaryDrawingPolygonAnnotationManager: PolygonAnnotationManager?
+    private var boundaryDrawingPolygon: PolygonAnnotation?
+    private var completedBoundaryDrawingPolygons: [PolygonAnnotation] = []
     private var lineAnnotationManager: PolylineAnnotationManager?
     private var pathAnnotations: [PolylineAnnotation] = []
     private var currentSegmentAnnotation: PolylineAnnotation?
@@ -89,6 +98,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
     private var waypointSelectedCallbackId: String?
     private var markerClickCallbackId: String?
     private var mapTapCallbackId: String?
+    private var boundaryAreaCallbackId: String?
     private var offlineDownloadProgressCallbackId: String?
     private var compassCallbackId: String?
     private var lastCompassBearing: Double = -1
@@ -116,6 +126,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
     private var lastKeepCallbackWaypointTs: TimeInterval = 0
     private var lastKeepCallbackMarkerTs: TimeInterval = 0
     private var lastKeepCallbackMapTapTs: TimeInterval = 0
+    private var lastBoundaryDrawingTapTs: TimeInterval = 0
     private let callbackRateLimit: TimeInterval = 0.1
     private let maxMarkers = 10000
     private let maxBoundaries = 1000
@@ -939,6 +950,96 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         }
     }
 
+    @objc(startBoundaryDrawing:)
+    func startBoundaryDrawing(command: CDVInvokedUrlCommand) {
+        rememberCommand(command)
+        runForSession {
+            guard self.mapView != nil else {
+                self.sendError("Map is not initialized.", command)
+                return
+            }
+
+            guard self.ensureBoundaryDrawingAnnotationManagers() else {
+                self.sendError("Unable to initialize drawing managers.", command)
+                return
+            }
+
+            self.clearBoundaryDrawingInternal()
+            self.isBoundaryDrawing = true
+            self.lastBoundaryDrawingTapTs = 0
+            self.sendSuccess(command)
+        }
+    }
+
+    @objc(undoBoundaryPoint:)
+    func undoBoundaryPoint(command: CDVInvokedUrlCommand) {
+        rememberCommand(command)
+        runForSession {
+            guard self.isBoundaryDrawing else {
+                self.sendError("Boundary drawing is not active.", command)
+                return
+            }
+
+            guard !self.boundaryDrawingPoints.isEmpty else {
+                self.sendError("No points available to undo.", command)
+                return
+            }
+
+            self.boundaryDrawingPoints.removeLast()
+            self.redrawBoundaryDrawing()
+            self.notifyBoundaryAreaChanged()
+            self.sendSuccess(command)
+        }
+    }
+
+    @objc(saveBoundaryDrawing:)
+    func saveBoundaryDrawing(command: CDVInvokedUrlCommand) {
+        rememberCommand(command)
+        runForSession {
+            guard self.isBoundaryDrawing else {
+                self.sendError("Boundary drawing is not active.", command)
+                return
+            }
+
+            guard self.boundaryDrawingPoints.count >= 3 else {
+                self.sendError("At least 3 points are required.", command)
+                return
+            }
+
+            let options = command.argument(at: 0) as? [String: Any] ?? [:]
+            guard self.validInput(options, command) else { return }
+
+            let geometry = self.boundaryDrawingPoints.map { point in
+                ["lat": point.latitude, "lon": point.longitude]
+            }
+            let result: [String: Any] = [
+                "name": options["name"] as? String ?? "",
+                "geometry": geometry,
+                "count": self.boundaryDrawingPoints.count,
+                "areaAcres": self.calculateBoundaryAreaAcres(self.boundaryDrawingPoints)
+            ]
+
+            if let polygon = self.boundaryDrawingPolygon {
+                self.completedBoundaryDrawingPolygons.append(polygon)
+                self.boundaryDrawingPolygon = nil
+            }
+            self.removeActiveBoundaryDrawingLine()
+            self.removeActiveBoundaryDrawingPointAnnotations()
+            self.boundaryDrawingPoints.removeAll()
+            self.isBoundaryDrawing = false
+            self.sendSuccess(result, command)
+        }
+    }
+
+    @objc(cancelBoundaryDrawing:)
+    func cancelBoundaryDrawing(command: CDVInvokedUrlCommand) {
+        rememberCommand(command)
+        runForSession {
+            self.clearBoundaryDrawingInternal()
+            self.sendSuccess(command)
+        }
+    }
+
     // --- Path Tracking Methods ---
 
     private func ensureLineAnnotationManager() -> Bool {
@@ -1654,6 +1755,13 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         sendNoResultKeepCallback(command)
     }
 
+    @objc(registerBoundaryAreaCallback:)
+    func registerBoundaryAreaCallback(command: CDVInvokedUrlCommand) {
+        rememberCommand(command)
+        boundaryAreaCallbackId = command.callbackId
+        sendNoResultKeepCallback(command)
+    }
+
     @objc(registerOfflineDownloadProgressCallback:)
     func registerOfflineDownloadProgressCallback(command: CDVInvokedUrlCommand) {
         rememberCommand(command)
@@ -1764,6 +1872,11 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         let generation = sessionGeneration
         mapView.gestures.onMapTap.observe { [weak self] context in
             guard let self = self, self.sessionGeneration == generation else {
+                return
+            }
+
+            if self.isBoundaryDrawing {
+                self.addBoundaryDrawingPoint(context.coordinate)
                 return
             }
 
@@ -1953,6 +2066,140 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         boundaryAnnotations.removeAll()
         boundaryAnnotationManager?.annotations = []
         boundaryVisible = true
+    }
+
+    private func ensureBoundaryDrawingAnnotationManagers() -> Bool {
+        guard let mapView = mapView else { return false }
+        if boundaryDrawingLineAnnotationManager == nil {
+            boundaryDrawingLineAnnotationManager = mapView.annotations.makePolylineAnnotationManager()
+        }
+        if boundaryDrawingPointAnnotationManager == nil {
+            boundaryDrawingPointAnnotationManager = mapView.annotations.makeCircleAnnotationManager()
+        }
+        if boundaryDrawingPolygonAnnotationManager == nil {
+            boundaryDrawingPolygonAnnotationManager = mapView.annotations.makePolygonAnnotationManager()
+        }
+        return boundaryDrawingLineAnnotationManager != nil
+            && boundaryDrawingPointAnnotationManager != nil
+            && boundaryDrawingPolygonAnnotationManager != nil
+    }
+
+    private func addBoundaryDrawingPoint(_ coordinate: CLLocationCoordinate2D) {
+        guard isBoundaryDrawing,
+              ensureBoundaryDrawingAnnotationManagers() else {
+            return
+        }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastBoundaryDrawingTapTs >= callbackRateLimit else { return }
+        lastBoundaryDrawingTapTs = now
+
+        boundaryDrawingPoints.append(coordinate)
+        redrawBoundaryDrawing()
+        notifyBoundaryAreaChanged()
+    }
+
+    private func redrawBoundaryDrawing() {
+        guard ensureBoundaryDrawingAnnotationManagers() else { return }
+
+        removeActiveBoundaryDrawingLine()
+        removeActiveBoundaryDrawingPointAnnotations()
+        removeActiveBoundaryDrawingPolygon()
+
+        if boundaryDrawingPoints.count >= 2 {
+            var line = PolylineAnnotation(lineCoordinates: boundaryDrawingPoints)
+            line.lineColor = StyleColor(colorOption("#FF0000", defaultColor: .red))
+            line.lineWidth = 2.0
+            boundaryDrawingLine = line
+            boundaryDrawingLineAnnotationManager?.annotations.append(line)
+        }
+
+        for coordinate in boundaryDrawingPoints {
+            var point = CircleAnnotation(centerCoordinate: coordinate)
+            point.circleColor = StyleColor(colorOption("#FF0000", defaultColor: .red))
+            point.circleRadius = 6.0
+            point.circleStrokeColor = StyleColor(colorOption("#FFFFFF", defaultColor: .white))
+            point.circleStrokeWidth = 2.0
+            boundaryDrawingPointAnnotations.append(point)
+        }
+        boundaryDrawingPointAnnotationManager?.annotations =
+            boundaryDrawingPointAnnotations
+
+        if boundaryDrawingPoints.count >= 3 {
+            var ring = boundaryDrawingPoints
+            if let first = ring.first {
+                ring.append(first)
+            }
+            var polygon = PolygonAnnotation(polygon: Polygon([ring]))
+            polygon.fillColor = StyleColor(colorOption("#FF0000", defaultColor: .red))
+            polygon.fillOpacity = 0.30
+            polygon.fillOutlineColor = StyleColor(colorOption("#FF0000", defaultColor: .red))
+            boundaryDrawingPolygon = polygon
+            boundaryDrawingPolygonAnnotationManager?.annotations.append(polygon)
+        }
+    }
+
+    private func removeActiveBoundaryDrawingLine() {
+        guard let line = boundaryDrawingLine else { return }
+        boundaryDrawingLineAnnotationManager?.annotations.removeAll { $0.id == line.id }
+        boundaryDrawingLine = nil
+    }
+
+    private func removeActiveBoundaryDrawingPointAnnotations() {
+        let pointIds = Set(boundaryDrawingPointAnnotations.map(\.id))
+        boundaryDrawingPointAnnotationManager?.annotations.removeAll {
+            pointIds.contains($0.id)
+        }
+        boundaryDrawingPointAnnotations.removeAll()
+    }
+
+    private func removeActiveBoundaryDrawingPolygon() {
+        guard let polygon = boundaryDrawingPolygon else { return }
+        boundaryDrawingPolygonAnnotationManager?.annotations.removeAll {
+            $0.id == polygon.id
+        }
+        boundaryDrawingPolygon = nil
+    }
+
+    private func clearBoundaryDrawingInternal() {
+        isBoundaryDrawing = false
+        boundaryDrawingPoints.removeAll()
+        removeActiveBoundaryDrawingLine()
+        removeActiveBoundaryDrawingPointAnnotations()
+        removeActiveBoundaryDrawingPolygon()
+        lastBoundaryDrawingTapTs = 0
+    }
+
+    private func calculateBoundaryAreaAcres(
+        _ points: [CLLocationCoordinate2D]
+    ) -> Double {
+        guard points.count >= 3 else { return 0 }
+
+        let earthRadius = 6_378_137.0
+        var total = 0.0
+
+        for index in points.indices {
+            let current = points[index]
+            let next = points[(index + 1) % points.count]
+            let latitude1 = current.latitude * .pi / 180
+            let latitude2 = next.latitude * .pi / 180
+            let longitude1 = current.longitude * .pi / 180
+            let longitude2 = next.longitude * .pi / 180
+
+            total += (longitude2 - longitude1)
+                * (2 + sin(latitude1) + sin(latitude2))
+        }
+
+        let areaSquareMeters = abs(total * earthRadius * earthRadius / 2)
+        return areaSquareMeters / 4046.8564224
+    }
+
+    private func notifyBoundaryAreaChanged() {
+        guard boundaryAreaCallbackId != nil else { return }
+        sendKeepCallback(boundaryAreaCallbackId, payload: [
+            "areaAcres": calculateBoundaryAreaAcres(boundaryDrawingPoints),
+            "pointCount": boundaryDrawingPoints.count
+        ])
     }
 
     private func sendMarkerClickIfNear(_ coordinate: CLLocationCoordinate2D) -> Bool {
@@ -2156,9 +2403,17 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         stopUserTracking()
         annotations?.annotations.removeAll()
         clearBoundariesInternal()
+        clearBoundaryDrawingInternal()
         lineAnnotationManager?.annotations.removeAll()
         if let mapView = mapView {
-            let managerIds = [annotations?.id, boundaryAnnotationManager?.id, lineAnnotationManager?.id]
+            let managerIds = [
+                annotations?.id,
+                boundaryAnnotationManager?.id,
+                lineAnnotationManager?.id,
+                boundaryDrawingLineAnnotationManager?.id,
+                boundaryDrawingPointAnnotationManager?.id,
+                boundaryDrawingPolygonAnnotationManager?.id
+            ]
             for id in managerIds.compactMap({ $0 }) {
                 mapView.annotations.removeAnnotationManager(withId: id)
             }
@@ -2169,6 +2424,10 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         annotations = nil
         boundaryAnnotationManager = nil
         lineAnnotationManager = nil
+        boundaryDrawingLineAnnotationManager = nil
+        boundaryDrawingPointAnnotationManager = nil
+        boundaryDrawingPolygonAnnotationManager = nil
+        completedBoundaryDrawingPolygons.removeAll()
         pathAnnotations.removeAll()
         currentSegmentAnnotation = nil
         pathPoints.removeAll()
@@ -2186,6 +2445,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         waypointSelectedCallbackId = nil
         markerClickCallbackId = nil
         mapTapCallbackId = nil
+        boundaryAreaCallbackId = nil
         offlineDownloadProgressCallbackId = nil
         compassCallbackId = nil
         lastCompassBearing = -1
@@ -2205,6 +2465,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         lastKeepCallbackWaypointTs = 0
         lastKeepCallbackMarkerTs = 0
         lastKeepCallbackMapTapTs = 0
+        lastBoundaryDrawingTapTs = 0
         cancelables.removeAll()
         mapTouchOverlay?.removeFromSuperview()
         mapTouchOverlay = nil
@@ -2398,6 +2659,12 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
 
         let overlayPoint = recognizer.location(in: overlay)
         let tapPoint = overlay.convert(overlayPoint, to: mapView)
+        let coordinate = mapView.mapboxMap.coordinate(for: tapPoint)
+
+        if isBoundaryDrawing {
+            addBoundaryDrawingPoint(coordinate)
+            return
+        }
 
         if let markerId = hitMarkerAtScreenPoint(tapPoint, mapView: mapView) {
             sendKeepCallback(markerClickCallbackId, payload: [
@@ -2408,7 +2675,6 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
             return
         }
 
-        let coordinate = mapView.mapboxMap.coordinate(for: tapPoint)
         sendMapTap(coordinate)
 
         guard waypointSelectionEnabled else {
@@ -2648,4 +2914,3 @@ private struct MarkerStyle {
     /// False for a marker created on the device that has not been synced to the backend yet.
     var isOnline = true
 }
-

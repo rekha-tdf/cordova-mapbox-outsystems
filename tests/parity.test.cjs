@@ -144,6 +144,25 @@ test('isOnline sync flag is accepted by addMarker and loadMarkers and returned i
   assert.equal((ios.match(/"isOnline": /g) || []).length, 3);
 });
 
+test('iOS implements boundary drawing actions and live acreage updates', () => {
+  for (const action of [
+    'startBoundaryDrawing',
+    'undoBoundaryPoint',
+    'saveBoundaryDrawing',
+    'cancelBoundaryDrawing',
+    'registerBoundaryAreaCallback'
+  ]) {
+    assert.match(ios, new RegExp('@objc\\(' + action + ':\\)'));
+  }
+
+  assert.match(ios, /if self\.isBoundaryDrawing[\s\S]*?addBoundaryDrawingPoint\(context\.coordinate\)/);
+  assert.match(ios, /if isBoundaryDrawing[\s\S]*?addBoundaryDrawingPoint\(coordinate\)/);
+  assert.match(ios, /"areaAcres": calculateBoundaryAreaAcres\(boundaryDrawingPoints\)/);
+  assert.match(ios, /"pointCount": boundaryDrawingPoints\.count/);
+  assert.match(ios, /"areaAcres": self\.calculateBoundaryAreaAcres\(self\.boundaryDrawingPoints\)/);
+  assert.match(ios, /completedBoundaryDrawingPolygons\.append\(polygon\)/);
+});
+
 test('path line style is validated the same way on both platforms', () => {
   const androidStart = android.split('private void startPathTracking(')[1].split('private void stopPathTracking(')[0];
   const androidLoad = android.split('private void loadPath(')[1].split('private void clearPaths(')[0];
