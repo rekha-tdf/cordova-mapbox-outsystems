@@ -818,7 +818,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
             guard self.markers[id] != nil || self.markers.count < self.maxMarkers,
                   id.utf8.count <= 256 else { self.sendError("Marker/id limit exceeded.", command); return }
             let isFind = options["isFind"] as? Bool ?? false
-            guard let style = self.markerStyle(isFind: isFind, pinColor: options["pinColor"], imageUrl: options["imageUrl"], pinStyle: options["pinStyle"], isOnline: options["isOnline"] as? Bool ?? true) else {
+            guard let style = self.markerStyle(isFind: isFind, pinColor: options["pinColor"], imageUrl: options["imageUrl"], pinStyle: options["pinStyle"], isOnline: options["isOnline"] as? Bool ?? true, isPublic: options["isPublic"] as? Bool ?? true) else {
                 self.sendError(self.markerImageNotAllowed, command)
                 return
             }
@@ -846,7 +846,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
                 let id = marker["Id"].flatMap(self.stringOption) ?? String(index)
                 guard !id.isEmpty, id.utf8.count <= 256 else { self.sendError("Invalid marker id.", command); return }
                 let isFind = marker["IsFind"] as? Bool ?? false
-                guard let style = self.markerStyle(isFind: isFind, pinColor: marker["PinColor"], imageUrl: marker["ImageUrl"], pinStyle: marker["PinStyle"], isOnline: marker["IsOnline"] as? Bool ?? true) else {
+                guard let style = self.markerStyle(isFind: isFind, pinColor: marker["PinColor"], imageUrl: marker["ImageUrl"], pinStyle: marker["PinStyle"], isOnline: marker["IsOnline"] as? Bool ?? true, isPublic: marker["IsPublic"] as? Bool ?? true) else {
                     self.sendError(self.markerImageNotAllowed, command); return
                 }
                 styles.append(style)
@@ -1930,11 +1930,14 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         var marker = PointAnnotation(
             coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
         )
-        marker.image = style.photo
-            ? markerIcons.photoPin(color: style.color, source: style.imageUrl)
-            : markerIcons.pin(color: style.color, isFind: style.isFind, source: style.imageUrl)
+        // Every marker uses the Find (square) / Waypoint (circle) design; pinStyle "photo"
+        // is still accepted from older screens but no longer selects a different pin.
+        // Private markers (isPublic: false) show a lock tile instead of their image.
+        marker.image = style.isPublic
+            ? markerIcons.pin(color: style.color, isFind: style.isFind, source: style.imageUrl)
+            : markerIcons.lockedPin(color: style.color, isFind: style.isFind)
         marker.iconAnchor = .bottom
-        marker.iconSize = style.photo ? 0.27 : 0.5
+        marker.iconSize = 0.5
         let generation = sessionGeneration
         let annotationId = marker.id
         marker.tapHandler = { [weak self, id] context in
@@ -1962,10 +1965,14 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
     }
 
     /// Returns nil when imageUrl is not an allowed image source.
-    private func markerStyle(isFind: Bool, pinColor: Any?, imageUrl rawImageUrl: Any?, pinStyle: Any? = nil, isOnline: Bool = true) -> MarkerStyle? {
+    private func markerStyle(isFind: Bool, pinColor: Any?, imageUrl rawImageUrl: Any?, pinStyle: Any? = nil, isOnline: Bool = true, isPublic: Bool = true) -> MarkerStyle? {
         let photo = (pinStyle as? String) == "photo"
-        let defaultColor = isFind ? MarkerIcons.findPinColor : photo ? MarkerIcons.photoPinColor : MarkerIcons.defaultPinColor
+        let defaultColor = isFind ? MarkerIcons.findPinColor : MarkerIcons.defaultPinColor
         let color = colorOption(pinColor, defaultColor: defaultColor)
+        if !isPublic {
+            // Private markers show the lock tile; their image is never validated or downloaded.
+            return MarkerStyle(color: color, isFind: isFind, imageUrl: nil, photo: photo, isOnline: isOnline, isPublic: false)
+        }
         let imageUrl = (rawImageUrl as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if imageUrl.isEmpty {
             return MarkerStyle(color: color, isFind: isFind, imageUrl: nil, photo: photo, isOnline: isOnline)
@@ -1998,9 +2005,7 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         var changed = false
         for id in ids {
             guard var marker = markers[id], let style = markerStyles[id], style.imageUrl == imageUrl else { continue }
-            marker.image = style.photo
-                ? markerIcons.photoPin(color: style.color, source: imageUrl, image: image)
-                : markerIcons.pin(color: style.color, isFind: style.isFind, source: imageUrl, image: image)
+            marker.image = markerIcons.pin(color: style.color, isFind: style.isFind, source: imageUrl, image: image)
             markers[id] = marker
             changed = true
         }
@@ -2913,4 +2918,6 @@ private struct MarkerStyle {
     var photo = false
     /// False for a marker created on the device that has not been synced to the backend yet.
     var isOnline = true
+    /// False for a private Find or Waypoint: drawn as a lock tile, image never loaded.
+    var isPublic = true
 }

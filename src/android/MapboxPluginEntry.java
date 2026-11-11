@@ -3161,7 +3161,8 @@ if (gestures != null) {
                 options.optString("pinColor", null),
                 options.optString("imageUrl", ""),
                 "photo".equals(options.optString("pinStyle", "")),
-                options.optBoolean("isOnline", true)
+                options.optBoolean("isOnline", true),
+                options.optBoolean("isPublic", true)
             );
 
             if (!isValidLatitude(latitude) || !isValidLongitude(longitude)) {
@@ -3216,7 +3217,8 @@ if (gestures != null) {
                     marker.optString("PinColor", null),
                     marker.optString("ImageUrl", ""),
                     "photo".equals(marker.optString("PinStyle", "")),
-                    marker.optBoolean("IsOnline", true)
+                    marker.optBoolean("IsOnline", true),
+                    marker.optBoolean("IsPublic", true)
                 );
                 if (styles[i] == null) { callback.error(MARKER_IMAGE_NOT_ALLOWED); return; }
                 ids.add(id);
@@ -3279,13 +3281,16 @@ private boolean addMarkerInternal(
 
     PointAnnotationOptions markerOptions = new PointAnnotationOptions()
         .withPoint(Point.fromLngLat(longitude, latitude))
-        .withIconImage(style.photo
-            ? markerIcons.photoPin(style.color, style.imageUrl,
+        // Every marker uses the Find (square) / Waypoint (circle) design; pinStyle "photo"
+        // is still accepted from older screens but no longer selects a different pin.
+        // Private markers (isPublic: false) show a lock tile instead of their image.
+        .withIconImage(style.isPublic
+            ? markerIcons.pin(style.color, style.isFind, style.imageUrl,
                 cordova.getActivity().getResources().getDisplayMetrics().density)
-            : markerIcons.pin(style.color, style.isFind, style.imageUrl,
+            : markerIcons.lockedPin(style.color, style.isFind,
                 cordova.getActivity().getResources().getDisplayMetrics().density))
         .withIconAnchor(IconAnchor.BOTTOM)
-        .withIconSize(style.photo ? 0.27 : 0.5);
+        .withIconSize(0.5);
 
     PointAnnotation annotation =
         pointAnnotationManager.create(markerOptions);
@@ -3315,9 +3320,17 @@ private boolean addMarkerInternal(
     }
 
     private MarkerStyle markerStyle(boolean isFind, String pinColor, String rawImageUrl, boolean photo, boolean isOnline) {
-        int defaultColor = isFind ? MarkerIcons.FIND_PIN_COLOR
-            : photo ? MarkerIcons.PHOTO_PIN_COLOR : MarkerIcons.DEFAULT_PIN_COLOR;
+        return markerStyle(isFind, pinColor, rawImageUrl, photo, isOnline, true);
+    }
+
+    private MarkerStyle markerStyle(boolean isFind, String pinColor, String rawImageUrl, boolean photo,
+            boolean isOnline, boolean isPublic) {
+        int defaultColor = isFind ? MarkerIcons.FIND_PIN_COLOR : MarkerIcons.DEFAULT_PIN_COLOR;
         int color = MarkerIcons.parseColor(pinColor, defaultColor);
+        if (!isPublic) {
+            // Private markers show the lock tile; their image is never validated or downloaded.
+            return new MarkerStyle(color, isFind, null, photo, isOnline, false);
+        }
         String imageUrl = rawImageUrl == null ? "" : rawImageUrl.trim();
         if (imageUrl.isEmpty()) {
             return new MarkerStyle(color, isFind, null, photo, isOnline);
@@ -3363,9 +3376,7 @@ private boolean addMarkerInternal(
                 continue;
             }
             float density = cordova.getActivity().getResources().getDisplayMetrics().density;
-            annotation.setIconImageBitmap(style.photo
-                ? markerIcons.photoPin(style.color, imageUrl, image, density)
-                : markerIcons.pin(style.color, style.isFind, imageUrl, image, density));
+            annotation.setIconImageBitmap(markerIcons.pin(style.color, style.isFind, imageUrl, image, density));
             changed.add(annotation);
         }
 
@@ -3383,6 +3394,8 @@ private boolean addMarkerInternal(
         final boolean photo;
         /** False for a marker created on the device that has not been synced to the backend yet. */
         final boolean isOnline;
+        /** False for a private Find or Waypoint: drawn as a lock tile, image never loaded. */
+        final boolean isPublic;
 
         MarkerStyle(int color, boolean isFind, String imageUrl) {
             this(color, isFind, imageUrl, false);
@@ -3393,11 +3406,16 @@ private boolean addMarkerInternal(
         }
 
         MarkerStyle(int color, boolean isFind, String imageUrl, boolean photo, boolean isOnline) {
+            this(color, isFind, imageUrl, photo, isOnline, true);
+        }
+
+        MarkerStyle(int color, boolean isFind, String imageUrl, boolean photo, boolean isOnline, boolean isPublic) {
             this.color = color;
             this.isFind = isFind;
             this.imageUrl = imageUrl;
             this.photo = photo;
             this.isOnline = isOnline;
+            this.isPublic = isPublic;
         }
     }
 

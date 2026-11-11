@@ -13,8 +13,8 @@ var TARGET_SIZE = 192;
 var DECODE_TIMEOUT_MS = 10000;
 var MAX_PARALLEL_DECODES = 4;
 
-var ADD_KEYS = { isFind: 'isFind', url: 'imageUrl', binary: 'imageBinary', mime: 'imageMimeType' };
-var LOAD_KEYS = { isFind: 'IsFind', url: 'ImageUrl', binary: 'ImageBinary', mime: 'ImageMimeType' };
+var ADD_KEYS = { isFind: 'isFind', isPublic: 'isPublic', url: 'imageUrl', binary: 'imageBinary', mime: 'imageMimeType' };
+var LOAD_KEYS = { isFind: 'IsFind', isPublic: 'IsPublic', url: 'ImageUrl', binary: 'ImageBinary', mime: 'ImageMimeType' };
 
 var warnedFind = false;
 
@@ -211,6 +211,10 @@ function prepare(win, marker, keys, cache, label) {
   // Shared OutSystems structures leave the unused URL null. Android reads JSON null as the
   // text "null" (an invalid image source that rejects the whole call); omit it instead.
   if (copy[keys.url] === null) delete copy[keys.url];
+
+  // Private markers (isPublic: false) are drawn natively as a lock tile; their image is
+  // never converted, sent or downloaded.
+  if (copy[keys.isPublic] === false) return Promise.resolve(copy);
 
   if (copy[keys.isFind] === true) {
     // Find markers keep their URL behaviour; binary data is not used for them.

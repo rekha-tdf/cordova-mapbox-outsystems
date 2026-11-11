@@ -241,3 +241,21 @@ test('shared structure: Find has URL + empty/null binary, Waypoint has null URL 
   assert.deepStrictEqual(sent.map((m) => m.IsFind), [true, true, false, false, false, false]);
   assert.strictEqual(warnings.length, 0, 'empty binaries on Find markers are not warned about');
 });
+
+test('private markers (IsPublic false) skip image conversion; public and unset markers are unchanged', async () => {
+  let decodes = 0;
+  const { api, calls } = load({ decodable: () => { decodes++; return true; } });
+  await api.loadMarkers([
+    { Id: 'pw', Latitude: 1, Longitude: 1, IsFind: false, IsPublic: false, ImageBinary: b64(bytes(PNG, 900, 21)) },
+    { Id: 'pf', Latitude: 2, Longitude: 2, IsFind: true, IsPublic: false, ImageUrl: 'https://bucket.s3.amazonaws.com/secret.png', ImageBinary: '' },
+    { Id: 'w', Latitude: 3, Longitude: 3, IsFind: false, IsPublic: true, ImageBinary: b64(bytes(PNG, 900, 22)) },
+    { Id: 'w2', Latitude: 4, Longitude: 4, IsFind: false, ImageBinary: b64(bytes(PNG, 900, 23)) }
+  ]);
+  const sent = calls[0].args[0].markers;
+  assert.strictEqual(sent[0].IsPublic, false, 'flag reaches native');
+  assert.ok(!('ImageBinary' in sent[0]) && !('ImageUrl' in sent[0]), 'private waypoint sends no image');
+  assert.strictEqual(sent[1].IsPublic, false);
+  assert.match(sent[2].ImageUrl, /^data:image\/png;base64,/);
+  assert.match(sent[3].ImageUrl, /^data:image\/png;base64,/);
+  assert.strictEqual(decodes, 2, 'only the two public waypoints were decoded');
+});

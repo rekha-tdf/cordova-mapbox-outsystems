@@ -95,9 +95,8 @@ test('markers accept imageUrl and pinColor on both platforms and reject disallow
   assert.match(iosAdd, /options\["pinColor"\]/);
   assert.match(iosLoad, /marker\["ImageUrl"\]/);
   assert.match(iosLoad, /marker\["PinColor"\]/);
-  // Classic pins are 0.5; photo pins (pinStyle "photo") are 0.27 on both platforms.
-  assert.match(ios, /marker\.iconSize = style\.photo \? 0\.27 : 0\.5/);
-  assert.match(android, /\.withIconSize\(style\.photo \? 0\.27 : 0\.5\)/);
+  assert.match(ios, /marker\.iconSize = 0\.5/);
+  assert.match(android, /\.withIconSize\(0\.5\)/);
   assert.match(ios, /MAPBOX_ALLOWED_MARKER_IMAGE_HOSTS/);
 });
 
@@ -114,23 +113,22 @@ test('location accuracy subscriptions actively monitor and clean up on both plat
   assert.match(iosRegistration, /startUpdatingLocation\(\)/);
   assert.match(iosParity, /stopAccuracyMonitoring\(\)/);
 });
-test('pinStyle "photo" draws the same 52x63 pin on both platforms and is opt-in', () => {
+test('pinStyle "photo" is still accepted but every marker uses the Find/Waypoint design', () => {
   const androidIcons = fs.readFileSync('src/android/MarkerIcons.java', 'utf8');
+  // Older screens may still send pinStyle; it must keep parsing on both platforms.
   assert.match(android, /optString\("pinStyle"/);
   assert.match(android, /optString\("PinStyle"/);
   assert.match(ios, /pinStyle: options\["pinStyle"\]/);
   assert.match(ios, /pinStyle: marker\["PinStyle"\]/);
-  assert.match(ios, /\(pinStyle as\? String\) == "photo"/);
-  // Same canvas (52x63 grid at 2x) and the same teardrop geometry.
-  assert.match(androidIcons, /PHOTO_WIDTH = 52/);
-  assert.match(androidIcons, /PHOTO_HEIGHT = 63/);
-  assert.match(iosMarkerIcons, /photoSize = CGSize\(width: 104, height: 126\)/);
-  for (const source of [androidIcons, iosMarkerIcons]) {
-    assert.match(source, /14\.5/);
-    assert.match(source, /36\.95/);
-    assert.match(source, /62\.75/);
+  // ...but it no longer selects the retired teardrop pin.
+  for (const source of [android, ios, androidIcons, iosMarkerIcons]) {
+    assert.doesNotMatch(source, /photoPin|drawPhoto|PHOTO_PIN_COLOR|photoPinColor/);
   }
-  // Classic pins are untouched unless the option is set.
+  assert.match(android, /\.withIconImage\(style\.isPublic\s*\?\s*markerIcons\.pin\(style\.color, style\.isFind, style\.imageUrl,/);
+  assert.match(ios, /marker\.image = style\.isPublic\s*\?\s*markerIcons\.pin\(color: style\.color, isFind: style\.isFind, source: style\.imageUrl\)/);
+  // Square Find and circular Waypoint shapes on both platforms.
+  assert.match(androidIcons, /if \(isFind\) \{[\s\S]*?addRoundRect[\s\S]*?addCircle/);
+  assert.match(iosMarkerIcons, /if isFind \{\s*return UIBezierPath\(roundedRect:[\s\S]*?UIBezierPath\(ovalIn:/);
   assert.match(android, /MarkerStyle\(int color, boolean isFind, String imageUrl\)\s*\{\s*this\(color, isFind, imageUrl, false\)/);
   assert.match(ios, /var photo = false/);
 });
@@ -178,4 +176,20 @@ test('path line style is validated the same way on both platforms', () => {
     assert.match(body, /lineWidthOption\(options\["lineWidth"\]\)/);
     assert.match(body, /lineOpacityOption\(options\["lineOpacity"\]\)/);
   }
+});
+
+test('IsPublic false draws a lock tile on both platforms and never loads the image', () => {
+  const androidIcons = fs.readFileSync('src/android/MarkerIcons.java', 'utf8');
+  assert.match(android, /optBoolean\("isPublic", true\)/);
+  assert.match(android, /optBoolean\("IsPublic", true\)/);
+  assert.match(ios, /isPublic: options\["isPublic"\] as\? Bool \?\? true/);
+  assert.match(ios, /isPublic: marker\["IsPublic"\] as\? Bool \?\? true/);
+  // Private styles carry no image URL, so nothing is validated or downloaded.
+  assert.match(android, /if \(!isPublic\) \{[\s\S]*?new MarkerStyle\(color, isFind, null, photo, isOnline, false\)/);
+  assert.match(ios, /if !isPublic \{[\s\S]*?imageUrl: nil, photo: photo, isOnline: isOnline, isPublic: false\)/);
+  assert.match(android, /style\.isPublic\s*\?\s*markerIcons\.pin\([\s\S]*?:\s*markerIcons\.lockedPin\(style\.color, style\.isFind,/);
+  assert.match(ios, /style\.isPublic\s*\?\s*markerIcons\.pin\([\s\S]*?:\s*markerIcons\.lockedPin\(color: style\.color, isFind: style\.isFind\)/);
+  assert.match(androidIcons, /Bitmap lockedPin\(int color, boolean isFind, float density\)/);
+  assert.match(iosMarkerIcons, /func lockedPin\(color: UIColor, isFind: Bool\)/);
+  for (const source of [androidIcons, iosMarkerIcons]) assert.match(source, /drawLockTile/);
 });

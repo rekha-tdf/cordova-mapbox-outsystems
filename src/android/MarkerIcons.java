@@ -8,6 +8,7 @@ import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.RadialGradient;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.util.Base64;
@@ -26,8 +27,6 @@ final class MarkerIcons {
     // Find (square) and Waypoint (circle) markers share a near-black frame; pinColor overrides it.
     static final int DEFAULT_PIN_COLOR = Color.rgb(31, 31, 31);
     static final int FIND_PIN_COLOR = Color.rgb(31, 31, 31);
-
-    static final int PHOTO_PIN_COLOR = Color.rgb(221, 0, 29);
 
     interface Loaded {
         void done(Bitmap image);
@@ -52,13 +51,11 @@ final class MarkerIcons {
     private static final int PLACEHOLDER_COLOR = 0xFFE5E7EB;
     private static final int PLACEHOLDER_GLYPH_COLOR = 0xFF6B7280;
     private static final int CROSSHAIR_COLOR = 0xFFD32F2F;
+    // Private (lock) tile: warm, blurred-photo look with a white lock.
+    private static final int LOCK_TILE_COLOR = 0xFF866C63;
+    private static final int LOCK_LIGHT_COLOR = 0x99C4AB9C;
+    private static final int LOCK_DARK_COLOR = 0xA65E4A43;
     private static final int IMAGE_DECODE_SIZE = 128;
-    private static final int PHOTO_WIDTH = 52;
-    private static final int PHOTO_HEIGHT = 63;
-    private static final float PHOTO_CENTER_X = 26.0f;
-    private static final float PHOTO_CENTER_Y = 26.0f;
-    private static final float PHOTO_RADIUS = 14.5f;
-    private static final int PHOTO_PLACEHOLDER_COLOR = 0xFFF3F4F6;
     private static final int TIMEOUT_MS = 10000;
 
     // Reusing one Bitmap instance per look lets Mapbox register a single style image for it.
@@ -92,7 +89,19 @@ final class MarkerIcons {
         String key = density + "|" + color + "|" + isFind + "|" + (image == null ? "" : source);
         Bitmap cached = pins.get(key);
         if (cached == null) {
-            cached = draw(color, isFind, image, density);
+            cached = draw(color, isFind, image, false, density);
+            pins.put(key, cached);
+        }
+        return cached;
+    }
+
+    /** Private marker: same shape, with a lock tile instead of an image. */
+    Bitmap lockedPin(int color, boolean isFind, float density) {
+        density = validDensity(density);
+        String key = "locked|" + density + "|" + color + "|" + isFind;
+        Bitmap cached = pins.get(key);
+        if (cached == null) {
+            cached = draw(color, isFind, null, true, density);
             pins.put(key, cached);
         }
         return cached;
@@ -119,66 +128,6 @@ final class MarkerIcons {
 
     void shutdown() {
         executor.shutdownNow();
-    }
-
-    /** Larger "photo" pin (pinStyle "photo"); shows a grey disc until the image has loaded. */
-    Bitmap photoPin(int color, String source, float density) {
-        return photoPin(color, source, source == null ? null : images.get(source), density);
-    }
-
-    Bitmap photoPin(int color, String source, Bitmap image, float density) {
-        density = validDensity(density);
-        String key = "photo|" + density + "|" + color + "|" + (image == null ? "" : source);
-        Bitmap cached = pins.get(key);
-        if (cached == null) {
-            cached = drawPhoto(color, image, density);
-            pins.put(key, cached);
-        }
-        return cached;
-    }
-
-    private static Bitmap drawPhoto(int pinColor, Bitmap image, float density) {
-        // Artwork is authored on a 52x63 grid and rendered at 2x so that iconSize=0.5
-        // shows it at 52x63 dp, like the classic pin does with its 72x96 canvas.
-        Bitmap bitmap = Bitmap.createBitmap(Math.max(1, Math.round(PHOTO_WIDTH * 2 * density)),
-            Math.max(1, Math.round(PHOTO_HEIGHT * 2 * density)), Bitmap.Config.ARGB_8888);
-        bitmap.setDensity(Bitmap.DENSITY_NONE);
-        Canvas canvas = new Canvas(bitmap);
-        canvas.scale(density * 2, density * 2);
-
-        // Teardrop: circular head with a concave neck narrowing to a rounded tip.
-        Path pinPath = new Path();
-        pinPath.moveTo(8.75f, 44.0f);
-        pinPath.arcTo(new RectF(1.0f, 1.0f, 51.0f, 51.0f), 133.8f, 272.4f);
-        pinPath.cubicTo(36.95f, 50.0f, 29.0f, 53.75f, 29.0f, 60.0f);
-        pinPath.cubicTo(29.0f, 62.75f, 23.0f, 62.75f, 23.0f, 60.0f);
-        pinPath.cubicTo(23.0f, 53.75f, 15.05f, 50.0f, 8.75f, 44.0f);
-        pinPath.close();
-
-        Paint pinPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        pinPaint.setColor(pinColor);
-        canvas.drawPath(pinPath, pinPaint);
-
-        if (image == null) {
-            Paint discPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            discPaint.setColor(PHOTO_PLACEHOLDER_COLOR);
-            canvas.drawCircle(PHOTO_CENTER_X, PHOTO_CENTER_Y, PHOTO_RADIUS, discPaint);
-            return bitmap;
-        }
-
-        float scale = 2 * PHOTO_RADIUS / Math.min(image.getWidth(), image.getHeight());
-        Matrix matrix = new Matrix();
-        matrix.setScale(scale, scale);
-        matrix.postTranslate(
-            PHOTO_CENTER_X - image.getWidth() * scale / 2,
-            PHOTO_CENTER_Y - image.getHeight() * scale / 2
-        );
-        BitmapShader shader = new BitmapShader(image, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
-        shader.setLocalMatrix(matrix);
-        Paint imagePaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-        imagePaint.setShader(shader);
-        canvas.drawCircle(PHOTO_CENTER_X, PHOTO_CENTER_Y, PHOTO_RADIUS, imagePaint);
-        return bitmap;
     }
 
     private byte[] read(String source, String hosts, long requestGeneration) throws Exception {
@@ -244,7 +193,7 @@ final class MarkerIcons {
         return density > 0 && !Float.isNaN(density) && !Float.isInfinite(density) ? density : 1.0f;
     }
 
-    private static Bitmap draw(int pinColor, boolean isFind, Bitmap image, float density) {
+    private static Bitmap draw(int pinColor, boolean isFind, Bitmap image, boolean locked, float density) {
         // Annotation images default to the map's pixel ratio. Supply physical
         // pixels for our logical 72x96 artwork; iconSize=0.5 then yields 36x48 dp.
         Bitmap bitmap = Bitmap.createBitmap(Math.max(1, Math.round(WIDTH * density)),
@@ -271,6 +220,10 @@ final class MarkerIcons {
         canvas.drawPath(headPath(isFind, HEAD_Y, 0.0f), cardPaint);
 
         Path inner = headPath(isFind, HEAD_Y, FRAME_INSET);
+        if (locked) {
+            drawLockTile(canvas, inner, isFind);
+            return bitmap;
+        }
         if (image != null) {
             // Center-crop the image inside the white border.
             float side = HEAD_SIZE - 2 * FRAME_INSET;
@@ -327,6 +280,50 @@ final class MarkerIcons {
         }
 
         return bitmap;
+    }
+
+    /** Warm "hidden photo" background with a centered white outlined lock. */
+    private static void drawLockTile(Canvas canvas, Path inner, boolean isFind) {
+        canvas.save();
+        canvas.clipPath(inner);
+        Paint tilePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        tilePaint.setColor(LOCK_TILE_COLOR);
+        canvas.drawPath(inner, tilePaint);
+        // Soft light and dark patches, like a heavily blurred photo.
+        Paint patchPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        patchPaint.setShader(new RadialGradient(CENTER_X - 12.0f, HEAD_Y - 14.0f, 24.0f,
+            LOCK_LIGHT_COLOR, LOCK_LIGHT_COLOR & 0x00FFFFFF, Shader.TileMode.CLAMP));
+        canvas.drawPath(inner, patchPaint);
+        patchPaint.setShader(new RadialGradient(CENTER_X + 14.0f, HEAD_Y + 16.0f, 24.0f,
+            LOCK_DARK_COLOR, LOCK_DARK_COLOR & 0x00FFFFFF, Shader.TileMode.CLAMP));
+        canvas.drawPath(inner, patchPaint);
+        canvas.restore();
+
+        // A smaller lock in the circle keeps it clear of the curved edge.
+        float s = isFind ? 1.0f : 0.85f;
+        float cx = CENTER_X;
+        float cy = HEAD_Y + 1.5f * s;
+        Paint lockPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        lockPaint.setColor(Color.argb(26, 255, 255, 255));
+        RectF body = new RectF(cx - 10.0f * s, cy - 1.0f * s, cx + 10.0f * s, cy + 13.0f * s);
+        canvas.drawRoundRect(body, 2.5f * s, 2.5f * s, lockPaint);
+
+        lockPaint.setColor(Color.WHITE);
+        lockPaint.setStyle(Paint.Style.STROKE);
+        lockPaint.setStrokeCap(Paint.Cap.ROUND);
+        lockPaint.setStrokeJoin(Paint.Join.ROUND);
+        lockPaint.setStrokeWidth(2.6f * s);
+        canvas.drawRoundRect(body, 2.5f * s, 2.5f * s, lockPaint);
+        Path shackle = new Path();
+        shackle.moveTo(cx - 6.0f * s, cy - 1.0f * s);
+        shackle.lineTo(cx - 6.0f * s, cy - 6.0f * s);
+        shackle.arcTo(new RectF(cx - 6.0f * s, cy - 12.0f * s, cx + 6.0f * s, cy), 180.0f, 180.0f);
+        shackle.lineTo(cx + 6.0f * s, cy - 1.0f * s);
+        canvas.drawPath(shackle, lockPaint);
+
+        lockPaint.setStrokeWidth(1.8f * s);
+        canvas.drawCircle(cx, cy + 5.0f * s, 2.2f * s, lockPaint);
+        canvas.drawLine(cx, cy + 7.2f * s, cx, cy + 9.5f * s, lockPaint);
     }
 
     /** Rounded square (Find) or circle (Waypoint) centered at centerY; negative inset grows it. */
