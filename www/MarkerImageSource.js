@@ -1,4 +1,4 @@
- // Converts Waypoint marker binary images into image sources the native layer
+// Converts Waypoint marker binary images into image sources the native layer
 // already renders (data:image/...;base64,...). Find markers are never touched:
 // they keep passing imageUrl exactly as before.
 

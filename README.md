@@ -578,18 +578,16 @@ The map must be initialized before adding markers.
 
 ### Marker appearance
 
-Every marker is the same teardrop pin, anchored at its bottom tip. Three optional fields change how it looks:
+`isFind` / `IsFind` picks the marker shape. The image sits on a white card with a thin near-black outline that narrows below it to a rounded tip, anchored at the tip on the marker coordinate:
 
-| Look | How to get it |
-|---|---|
-| Red pin with a white dot | Default |
-| Blue pin with a magnifying-glass icon | `isFind: true` |
-| Any pin color | `pinColor: "#16A34A"` |
-| Image inside the pin head | `imageUrl: "https://..."` |
+| Marker | Shape | Image |
+|---|---|---|
+| Find (`isFind: true`) | Rounded square with a flat chin and tip | `imageUrl` (for example an S3 URL), center-cropped to a rounded square |
+| Waypoint (`isFind` false or omitted) | Circle with a teardrop tip | `imageBinary` (converted), or `imageUrl`, center-cropped to a circle |
 
-- `pinColor` overrides the default color, including the blue of `isFind` pins.
-- `imageUrl` replaces the white dot or the magnifying glass. The image is center-cropped to a circle and framed by a white ring.
-- The fields can be combined, for example a green pin with a photo inside.
+- Until the image loads, or when there is none: a Find shows a light grey tile with a magnifying glass; a Waypoint shows a red compass crosshair on the white card.
+- `pinColor` overrides the outline and tip color (default `#1F1F1F`), for example `"#16A34A"` for a green outline.
+- Both shapes use the same 72 × 96 canvas and tip position as the earlier teardrop pin, so markers stay at the same place on the map.
 - `pinStyle: "photo"` switches to the larger photo pin: a 52x63 teardrop (default color `#DD001D`) with a large circular photo and no outline or shadow, tip on the marker coordinate. Until the image loads (or if it fails) a light grey disc is shown at the same size, so the marker does not change size. `pinColor` still applies. Any other value, or omitting it, keeps the classic pin. The same size is used on Android and iOS.
 
 ### addMarker(options)
@@ -603,8 +601,8 @@ Adds one marker. If a marker with the same `id` already exists, it is replaced.
 | `id` | string or number | No | Current time in milliseconds | Unique marker ID, up to 256 characters. Returned as a string. |
 | `latitude` | number | Yes | `0` | Between -90 and 90. |
 | `longitude` | number | Yes | `0` | Between -180 and 180. |
-| `isFind` | boolean | No | `false` | Blue pin with a magnifying-glass icon. |
-| `pinColor` | string | No | Red, or blue when `isFind` | `#RRGGBB` or `#RRGGBBAA` (alpha last). Invalid values fall back to the default. |
+| `isFind` | boolean | No | `false` | `true`: square Find marker. `false`: circular Waypoint marker. |
+| `pinColor` | string | No | Near-black (`#1F1F1F`) | `#RRGGBB` or `#RRGGBBAA` (alpha last). Invalid values fall back to the default. |
 | `imageUrl` | string | No | None | Image shown inside the pin. See [Image sources](#marker-image-sources). |
 | `imageBinary` | Binary (base64 string), data URI, `ArrayBuffer`, `Uint8Array` or byte array | No | None | **Waypoint markers only.** Image bytes, converted in the WebView. Takes priority over `imageUrl`. Ignored when `isFind` is `true`. See [Waypoint binary images](#waypoint-binary-images). |
 | `imageMimeType` | string | No | Detected from the bytes | Optional hint such as `image/png`. The file signature wins when it is recognized. |
@@ -662,7 +660,7 @@ Adds many markers in one native call. Use this instead of calling `addMarker` in
 | `Latitude` | number | Yes | `0` | Between -90 and 90. |
 | `Longitude` | number | Yes | `0` | Between -180 and 180. |
 | `IsFind` | boolean | No | `false` | Same as `isFind` in `addMarker`. |
-| `PinColor` | string | No | Red, or blue when `IsFind` | Same as `pinColor` in `addMarker`. |
+| `PinColor` | string | No | Near-black (`#1F1F1F`) | Same as `pinColor` in `addMarker`. |
 | `ImageUrl` | string | No | None | Same as `imageUrl` in `addMarker`. |
 | `ImageBinary` | Binary Data / base64 | No | None | Same as `imageBinary` in `addMarker` (Waypoints only). |
 | `ImageMimeType` | string | No | Detected | Same as `imageMimeType` in `addMarker`. |
@@ -860,6 +858,7 @@ By default, any HTTPS host is allowed. To allow only specific hosts, set the `MA
 - **Breaking:** `loadMarkers` item keys are capitalized: `Id`, `Latitude`, `Longitude`, `IsFind`. Items using `id`, `latitude`, `longitude`, or `isFind` are no longer read. Every such item falls back to an index ID and coordinates `0, 0`. `addMarker` still uses lowercase keys.
 - **New:** `pinColor` / `PinColor` and `imageUrl` / `ImageUrl`.
 - **New:** `isFind` pins show a magnifying-glass icon on both platforms.
+- **Changed (1.0.6):** Find markers are white rounded-square cards and Waypoint markers are white circles, each with a black outline and tip, replacing the red/blue teardrop pin. Size, anchor and position are unchanged; `pinColor` and `pinStyle: "photo"` work as before.
 - **New:** the `MAPBOX_ALLOWED_MARKER_IMAGE_HOSTS` preference.
 - **New (1.0.5):** `imageBinary` / `ImageBinary` and `imageMimeType` / `ImageMimeType` for Waypoint markers. Find markers are unchanged.
 

@@ -23,8 +23,9 @@ import java.util.concurrent.Executors;
 
 /** Draws marker pins and loads the images shown inside them. */
 final class MarkerIcons {
-    static final int DEFAULT_PIN_COLOR = Color.rgb(220, 38, 38);
-    static final int FIND_PIN_COLOR = Color.rgb(37, 99, 235);
+    // Find (square) and Waypoint (circle) markers share a near-black frame; pinColor overrides it.
+    static final int DEFAULT_PIN_COLOR = Color.rgb(31, 31, 31);
+    static final int FIND_PIN_COLOR = Color.rgb(31, 31, 31);
 
     static final int PHOTO_PIN_COLOR = Color.rgb(221, 0, 29);
 
@@ -35,10 +36,22 @@ final class MarkerIcons {
     private static final int WIDTH = 72;
     private static final int HEIGHT = 96;
     private static final float CENTER_X = WIDTH / 2.0f;
-    private static final float HEAD_Y = 32.0f;
-    private static final float HEAD_RADIUS = 25.0f;
-    private static final float IMAGE_RING_RADIUS = 21.0f;
-    private static final float IMAGE_RADIUS = 19.0f;
+    // Marker head: a 52x52 white card (rounded square for Find, circle for Waypoint) inside
+    // a thin black outline that narrows below the card to a rounded tip. The tip ends at
+    // HEIGHT - 10, where the classic pin ended, so the bottom anchor and every marker's
+    // position on the map are unchanged.
+    private static final float HEAD_SIZE = 52.0f;
+    private static final float HEAD_Y = 46.0f;
+    private static final float OUTLINE = 2.5f;
+    private static final float FRAME_INSET = 3.8f;
+    private static final float SQUARE_RADIUS = 6.0f;
+    private static final float CHIN_HALF_WIDTH = 19.0f;
+    private static final float CHIN_BAND = 2.5f;
+    private static final float TIP_Y = HEIGHT - 10.0f;
+    private static final float TIP_ROUNDING = 2.0f;
+    private static final int PLACEHOLDER_COLOR = 0xFFE5E7EB;
+    private static final int PLACEHOLDER_GLYPH_COLOR = 0xFF6B7280;
+    private static final int CROSSHAIR_COLOR = 0xFFD32F2F;
     private static final int IMAGE_DECODE_SIZE = 128;
     private static final int PHOTO_WIDTH = 52;
     private static final int PHOTO_HEIGHT = 63;
@@ -240,35 +253,28 @@ final class MarkerIcons {
         Canvas canvas = new Canvas(bitmap);
         canvas.scale(density, density);
 
+        // Soft shadow: the outline silhouette, slightly larger, lower and translucent.
         Paint shadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        shadowPaint.setColor(Color.argb(65, 0, 0, 0));
-        canvas.drawOval(CENTER_X - 16.0f, HEIGHT - 16.0f, CENTER_X + 16.0f, HEIGHT - 8.0f, shadowPaint);
+        shadowPaint.setColor(Color.argb(40, 0, 0, 0));
+        canvas.drawPath(outlinePath(isFind, 1.0f, 1.5f), shadowPaint);
+        canvas.drawPath(chinPath(isFind, 1.0f, 1.5f), shadowPaint);
 
-        Path pinPath = new Path();
-        pinPath.addCircle(CENTER_X, HEAD_Y, HEAD_RADIUS, Path.Direction.CW);
-        pinPath.moveTo(CENTER_X - 14.0f, HEAD_Y + 19.0f);
-        pinPath.quadTo(CENTER_X - 5.0f, HEAD_Y + 52.0f, CENTER_X, HEIGHT - 10.0f);
-        pinPath.quadTo(CENTER_X + 5.0f, HEAD_Y + 52.0f, CENTER_X + 14.0f, HEAD_Y + 19.0f);
-        pinPath.close();
+        // Black outline around the card, narrowing below it to the tip on the coordinate.
+        Paint outlinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        outlinePaint.setColor(pinColor);
+        canvas.drawPath(outlinePath(isFind, 0.0f, 0.0f), outlinePaint);
+        canvas.drawPath(chinPath(isFind, 0.0f, 0.0f), outlinePaint);
 
-        Paint pinPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        pinPaint.setColor(pinColor);
-        canvas.drawPath(pinPath, pinPaint);
+        // White card: rounded square for Find markers, circle for Waypoint markers.
+        Paint cardPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        cardPaint.setColor(Color.WHITE);
+        canvas.drawPath(headPath(isFind, HEAD_Y, 0.0f), cardPaint);
 
-        Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        strokePaint.setStyle(Paint.Style.STROKE);
-        strokePaint.setStrokeWidth(3.0f);
-        strokePaint.setColor(Color.WHITE);
-        canvas.drawPath(pinPath, strokePaint);
-
-        Paint centerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        centerPaint.setColor(Color.WHITE);
-
+        Path inner = headPath(isFind, HEAD_Y, FRAME_INSET);
         if (image != null) {
-            canvas.drawCircle(CENTER_X, HEAD_Y, IMAGE_RING_RADIUS, centerPaint);
-
-            // Center-crop the image into the pin head.
-            float scale = 2 * IMAGE_RADIUS / Math.min(image.getWidth(), image.getHeight());
+            // Center-crop the image inside the white border.
+            float side = HEAD_SIZE - 2 * FRAME_INSET;
+            float scale = side / Math.min(image.getWidth(), image.getHeight());
             Matrix matrix = new Matrix();
             matrix.setScale(scale, scale);
             matrix.postTranslate(
@@ -280,29 +286,110 @@ final class MarkerIcons {
 
             Paint imagePaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
             imagePaint.setShader(shader);
-            canvas.drawCircle(CENTER_X, HEAD_Y, IMAGE_RADIUS, imagePaint);
+            canvas.drawPath(inner, imagePaint);
             return bitmap;
         }
 
-        canvas.drawCircle(CENTER_X, HEAD_Y, 10.0f, centerPaint);
-
-        Paint innerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        innerPaint.setStyle(Paint.Style.STROKE);
-        innerPaint.setStrokeWidth(2.0f);
-        innerPaint.setColor(Color.argb(40, 0, 0, 0));
-        canvas.drawCircle(CENTER_X, HEAD_Y, 10.0f, innerPaint);
-
+        Paint glyphPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        glyphPaint.setStyle(Paint.Style.STROKE);
+        glyphPaint.setStrokeCap(Paint.Cap.ROUND);
         if (isFind) {
-            Paint findIconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-            findIconPaint.setColor(pinColor);
-            findIconPaint.setStyle(Paint.Style.STROKE);
-            findIconPaint.setStrokeWidth(2.5f);
-            findIconPaint.setStrokeCap(Paint.Cap.ROUND);
-            canvas.drawCircle(CENTER_X - 1.0f, HEAD_Y - 1.0f, 4.0f, findIconPaint);
-            canvas.drawLine(CENTER_X + 2.0f, HEAD_Y + 2.0f, CENTER_X + 7.0f, HEAD_Y + 7.0f, findIconPaint);
+            // Find without an image (or still loading): grey tile with a magnifying glass.
+            Paint placeholderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            placeholderPaint.setColor(PLACEHOLDER_COLOR);
+            canvas.drawPath(inner, placeholderPaint);
+            glyphPaint.setColor(PLACEHOLDER_GLYPH_COLOR);
+            glyphPaint.setStrokeWidth(3.0f);
+            canvas.drawCircle(CENTER_X - 2.0f, HEAD_Y - 2.0f, 7.0f, glyphPaint);
+            canvas.drawLine(CENTER_X + 3.0f, HEAD_Y + 3.0f, CENTER_X + 9.0f, HEAD_Y + 9.0f, glyphPaint);
+        } else {
+            // Waypoint without an image (or still loading): red compass crosshair.
+            glyphPaint.setColor(CROSSHAIR_COLOR);
+            glyphPaint.setStrokeWidth(3.0f);
+            canvas.drawCircle(CENTER_X, HEAD_Y, 10.5f, glyphPaint);
+            canvas.drawLine(CENTER_X, HEAD_Y - 17.0f, CENTER_X, HEAD_Y - 8.0f, glyphPaint);
+            canvas.drawLine(CENTER_X, HEAD_Y + 8.0f, CENTER_X, HEAD_Y + 17.0f, glyphPaint);
+            canvas.drawLine(CENTER_X - 17.0f, HEAD_Y, CENTER_X - 8.0f, HEAD_Y, glyphPaint);
+            canvas.drawLine(CENTER_X + 8.0f, HEAD_Y, CENTER_X + 17.0f, HEAD_Y, glyphPaint);
+            Paint starPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            starPaint.setColor(CROSSHAIR_COLOR);
+            Path star = new Path();
+            star.moveTo(CENTER_X, HEAD_Y - 8.5f);
+            star.lineTo(CENTER_X + 2.0f, HEAD_Y - 2.0f);
+            star.lineTo(CENTER_X + 8.5f, HEAD_Y);
+            star.lineTo(CENTER_X + 2.0f, HEAD_Y + 2.0f);
+            star.lineTo(CENTER_X, HEAD_Y + 8.5f);
+            star.lineTo(CENTER_X - 2.0f, HEAD_Y + 2.0f);
+            star.lineTo(CENTER_X - 8.5f, HEAD_Y);
+            star.lineTo(CENTER_X - 2.0f, HEAD_Y - 2.0f);
+            star.close();
+            canvas.drawPath(star, starPaint);
         }
 
         return bitmap;
+    }
+
+    /** Rounded square (Find) or circle (Waypoint) centered at centerY; negative inset grows it. */
+    private static Path headPath(boolean isFind, float centerY, float inset) {
+        Path path = new Path();
+        float half = HEAD_SIZE / 2 - inset;
+        if (isFind) {
+            float radius = Math.max(2.0f, SQUARE_RADIUS - inset * 0.5f);
+            path.addRoundRect(new RectF(CENTER_X - half, centerY - half, CENTER_X + half, centerY + half),
+                radius, radius, Path.Direction.CW);
+        } else {
+            path.addCircle(CENTER_X, centerY, half, Path.Direction.CW);
+        }
+        return path;
+    }
+
+    /**
+     * Black outline around the card: for Find it extends CHIN_BAND further below the card
+     * so the chin starts from a full-width band; for Waypoint it is a slightly larger circle.
+     */
+    private static Path outlinePath(boolean isFind, float dy, float grow) {
+        if (!isFind) return headPath(false, HEAD_Y + dy, -OUTLINE - grow);
+        Path path = new Path();
+        float half = HEAD_SIZE / 2 + OUTLINE + grow;
+        float radius = SQUARE_RADIUS + OUTLINE * 0.5f + grow;
+        path.addRoundRect(new RectF(CENTER_X - half, HEAD_Y + dy - half,
+            CENTER_X + half, HEAD_Y + dy + half + CHIN_BAND), radius, radius, Path.Direction.CW);
+        return path;
+    }
+
+    /**
+     * Wedge from the outline down to a rounded tip at the coordinate. Square heads get a
+     * flat chin; circular heads get tangent sides, making a teardrop.
+     */
+    private static Path chinPath(boolean isFind, float dy, float grow) {
+        float tipY = TIP_Y + dy + grow;
+        float sideX;
+        float sideY;
+        if (isFind) {
+            sideX = CHIN_HALF_WIDTH + grow;
+            sideY = HEAD_Y + HEAD_SIZE / 2 + OUTLINE + CHIN_BAND + dy;
+        } else {
+            // Tangent points from the tip to the outlined circle.
+            float radius = HEAD_SIZE / 2 + OUTLINE + grow;
+            float distance = tipY - (HEAD_Y + dy);
+            float cos = radius / distance;
+            float sin = (float) Math.sqrt(Math.max(0.0f, 1.0f - cos * cos));
+            sideX = radius * sin;
+            sideY = HEAD_Y + dy + radius * cos;
+        }
+        // Start inside the head so the wedge joins it without a seam.
+        float topY = HEAD_Y + dy;
+        float topX = sideX * (tipY - topY) / (tipY - sideY);
+        float shoulder = TIP_ROUNDING / (tipY - sideY) * sideX;
+        Path path = new Path();
+        path.moveTo(CENTER_X - Math.min(topX, HEAD_SIZE / 2), topY);
+        path.lineTo(CENTER_X + Math.min(topX, HEAD_SIZE / 2), topY);
+        path.lineTo(CENTER_X + sideX, sideY);
+        path.lineTo(CENTER_X + shoulder, tipY - TIP_ROUNDING);
+        path.quadTo(CENTER_X, tipY, CENTER_X - shoulder, tipY - TIP_ROUNDING);
+        path.lineTo(CENTER_X - sideX, sideY);
+        path.close();
+        return path;
     }
 
     /** Parses #RRGGBB or #RRGGBBAA, matching the iOS color option format. */

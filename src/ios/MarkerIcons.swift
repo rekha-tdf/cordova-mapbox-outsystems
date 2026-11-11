@@ -6,15 +6,27 @@ import UIKit
 
 /// Draws marker pins and loads the images shown inside them.
 final class MarkerIcons: NSObject, URLSessionDataDelegate {
-    static let defaultPinColor = UIColor(red: 220 / 255, green: 38 / 255, blue: 38 / 255, alpha: 1)
-    static let findPinColor = UIColor(red: 37 / 255, green: 99 / 255, blue: 235 / 255, alpha: 1)
+    // Find (square) and Waypoint (circle) markers share a near-black frame; pinColor overrides it.
+    static let defaultPinColor = UIColor(red: 31 / 255, green: 31 / 255, blue: 31 / 255, alpha: 1)
+    static let findPinColor = UIColor(red: 31 / 255, green: 31 / 255, blue: 31 / 255, alpha: 1)
     static let photoPinColor = UIColor(red: 221 / 255, green: 0, blue: 29 / 255, alpha: 1)
 
     private static let size = CGSize(width: 72, height: 96)
-    private static let headY: CGFloat = 32
-    private static let headRadius: CGFloat = 25
-    private static let imageRingRadius: CGFloat = 21
-    private static let imageRadius: CGFloat = 19
+    // Marker head: a 52x52 white card (rounded square for Find, circle for Waypoint) inside
+    // a thin black outline that narrows below the card to a rounded tip. The tip ends at
+    // height - 10, where the classic pin ended, so the bottom anchor and every marker's
+    // position on the map are unchanged.
+    private static let headSize: CGFloat = 52
+    private static let headY: CGFloat = 46
+    private static let outline: CGFloat = 2.5
+    private static let frameInset: CGFloat = 3.8
+    private static let squareRadius: CGFloat = 6
+    private static let chinHalfWidth: CGFloat = 19
+    private static let chinBand: CGFloat = 2.5
+    private static let tipRounding: CGFloat = 2
+    private static let placeholderColor = UIColor(red: 229 / 255, green: 231 / 255, blue: 235 / 255, alpha: 1)
+    private static let placeholderGlyphColor = UIColor(red: 107 / 255, green: 114 / 255, blue: 128 / 255, alpha: 1)
+    private static let crosshairColor = UIColor(red: 211 / 255, green: 47 / 255, blue: 47 / 255, alpha: 1)
     private static let imageDecodeSize = 128
 
     private struct Download {
@@ -192,44 +204,28 @@ final class MarkerIcons: NSObject, URLSessionDataDelegate {
             let cg = context.cgContext
             let centerX = size.width / 2
 
-            cg.setFillColor(UIColor.black.withAlphaComponent(0.24).cgColor)
-            cg.fillEllipse(in: CGRect(x: centerX - 16, y: size.height - 16, width: 32, height: 8))
+            // Soft shadow: the outline silhouette, slightly larger, lower and translucent.
+            UIColor.black.withAlphaComponent(0.157).setFill()
+            outlinePath(isFind: isFind, centerX: centerX, dy: 1, grow: 1.5).fill()
+            chinPath(isFind: isFind, centerX: centerX, dy: 1, grow: 1.5).fill()
 
-            let path = UIBezierPath()
-            path.addArc(
-                withCenter: CGPoint(x: centerX, y: headY),
-                radius: headRadius,
-                startAngle: 0,
-                endAngle: CGFloat.pi * 2,
-                clockwise: true
-            )
-            path.move(to: CGPoint(x: centerX - 14, y: headY + 19))
-            path.addQuadCurve(
-                to: CGPoint(x: centerX, y: size.height - 10),
-                controlPoint: CGPoint(x: centerX - 5, y: headY + 52)
-            )
-            path.addQuadCurve(
-                to: CGPoint(x: centerX + 14, y: headY + 19),
-                controlPoint: CGPoint(x: centerX + 5, y: headY + 52)
-            )
-            path.close()
-
+            // Black outline around the card, narrowing below it to the tip on the coordinate.
             pinColor.setFill()
-            path.fill()
-            UIColor.white.setStroke()
-            path.lineWidth = 3
-            path.stroke()
+            outlinePath(isFind: isFind, centerX: centerX, dy: 0, grow: 0).fill()
+            chinPath(isFind: isFind, centerX: centerX, dy: 0, grow: 0).fill()
 
+            // White card: rounded square for Find markers, circle for Waypoint markers.
             UIColor.white.setFill()
+            headPath(isFind: isFind, centerX: centerX, centerY: headY, inset: 0).fill()
 
+            let inner = headPath(isFind: isFind, centerX: centerX, centerY: headY, inset: frameInset)
             if let image = image {
-                UIBezierPath(ovalIn: circle(centerX, headY, imageRingRadius)).fill()
-
-                // Center-crop the image into the pin head.
-                let scale = 2 * imageRadius / min(image.size.width, image.size.height)
+                // Center-crop the image inside the white border.
+                let side = headSize - 2 * frameInset
+                let scale = side / min(image.size.width, image.size.height)
                 let drawSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
                 cg.saveGState()
-                UIBezierPath(ovalIn: circle(centerX, headY, imageRadius)).addClip()
+                inner.addClip()
                 image.draw(in: CGRect(
                     x: centerX - drawSize.width / 2,
                     y: headY - drawSize.height / 2,
@@ -240,23 +236,92 @@ final class MarkerIcons: NSObject, URLSessionDataDelegate {
                 return
             }
 
-            UIBezierPath(ovalIn: circle(centerX, headY, 10)).fill()
-
-            UIColor.black.withAlphaComponent(0.16).setStroke()
-            let innerRing = UIBezierPath(ovalIn: circle(centerX, headY, 10))
-            innerRing.lineWidth = 2
-            innerRing.stroke()
-
+            cg.setLineCap(.round)
             if isFind {
-                cg.setStrokeColor(pinColor.cgColor)
-                cg.setLineWidth(2.5)
-                cg.setLineCap(.round)
-                cg.strokeEllipse(in: CGRect(x: centerX - 5, y: headY - 5, width: 8, height: 8))
-                cg.move(to: CGPoint(x: centerX + 2, y: headY + 2))
-                cg.addLine(to: CGPoint(x: centerX + 7, y: headY + 7))
+                // Find without an image (or still loading): grey tile with a magnifying glass.
+                placeholderColor.setFill()
+                inner.fill()
+                cg.setStrokeColor(placeholderGlyphColor.cgColor)
+                cg.setLineWidth(3)
+                cg.strokeEllipse(in: circle(centerX - 2, headY - 2, 7))
+                cg.move(to: CGPoint(x: centerX + 3, y: headY + 3))
+                cg.addLine(to: CGPoint(x: centerX + 9, y: headY + 9))
                 cg.strokePath()
+            } else {
+                // Waypoint without an image (or still loading): red compass crosshair.
+                cg.setStrokeColor(crosshairColor.cgColor)
+                cg.setLineWidth(3)
+                cg.strokeEllipse(in: circle(centerX, headY, 10.5))
+                for (from, to) in [((0.0, -17.0), (0.0, -8.0)), ((0.0, 8.0), (0.0, 17.0)),
+                                   ((-17.0, 0.0), (-8.0, 0.0)), ((8.0, 0.0), (17.0, 0.0))] {
+                    cg.move(to: CGPoint(x: centerX + CGFloat(from.0), y: headY + CGFloat(from.1)))
+                    cg.addLine(to: CGPoint(x: centerX + CGFloat(to.0), y: headY + CGFloat(to.1)))
+                }
+                cg.strokePath()
+                let star = UIBezierPath()
+                let points: [(CGFloat, CGFloat)] = [(0, -8.5), (2, -2), (8.5, 0), (2, 2), (0, 8.5), (-2, 2), (-8.5, 0), (-2, -2)]
+                for (index, point) in points.enumerated() {
+                    let location = CGPoint(x: centerX + point.0, y: headY + point.1)
+                    if index == 0 { star.move(to: location) } else { star.addLine(to: location) }
+                }
+                star.close()
+                crosshairColor.setFill()
+                star.fill()
             }
         }
+    }
+
+    /// Rounded square (Find) or circle (Waypoint) centered at centerY; a negative inset grows it.
+    private static func headPath(isFind: Bool, centerX: CGFloat, centerY: CGFloat, inset: CGFloat) -> UIBezierPath {
+        let half = headSize / 2 - inset
+        let rect = CGRect(x: centerX - half, y: centerY - half, width: half * 2, height: half * 2)
+        if isFind {
+            return UIBezierPath(roundedRect: rect, cornerRadius: max(2, squareRadius - inset * 0.5))
+        }
+        return UIBezierPath(ovalIn: rect)
+    }
+
+    /// Black outline around the card: for Find it extends chinBand further below the card so
+    /// the chin starts from a full-width band; for Waypoint it is a slightly larger circle.
+    private static func outlinePath(isFind: Bool, centerX: CGFloat, dy: CGFloat, grow: CGFloat) -> UIBezierPath {
+        guard isFind else {
+            return headPath(isFind: false, centerX: centerX, centerY: headY + dy, inset: -outline - grow)
+        }
+        let half = headSize / 2 + outline + grow
+        let rect = CGRect(x: centerX - half, y: headY + dy - half, width: half * 2, height: half * 2 + chinBand)
+        return UIBezierPath(roundedRect: rect, cornerRadius: squareRadius + outline * 0.5 + grow)
+    }
+
+    /// Wedge from the outline down to a rounded tip at the coordinate. Square heads get a
+    /// flat chin; circular heads get tangent sides, making a teardrop.
+    private static func chinPath(isFind: Bool, centerX: CGFloat, dy: CGFloat, grow: CGFloat) -> UIBezierPath {
+        let tipY = size.height - 10 + dy + grow
+        let sideX: CGFloat
+        let sideY: CGFloat
+        if isFind {
+            sideX = chinHalfWidth + grow
+            sideY = headY + headSize / 2 + outline + chinBand + dy
+        } else {
+            // Tangent points from the tip to the outlined circle.
+            let radius = headSize / 2 + outline + grow
+            let cosine = radius / (tipY - (headY + dy))
+            let sine = (max(0, 1 - cosine * cosine)).squareRoot()
+            sideX = radius * sine
+            sideY = headY + dy + radius * cosine
+        }
+        // Start inside the head so the wedge joins it without a seam.
+        let topY = headY + dy
+        let topX = min(sideX * (tipY - topY) / (tipY - sideY), headSize / 2)
+        let shoulder = tipRounding / (tipY - sideY) * sideX
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: centerX - topX, y: topY))
+        path.addLine(to: CGPoint(x: centerX + topX, y: topY))
+        path.addLine(to: CGPoint(x: centerX + sideX, y: sideY))
+        path.addLine(to: CGPoint(x: centerX + shoulder, y: tipY - tipRounding))
+        path.addQuadCurve(to: CGPoint(x: centerX - shoulder, y: tipY - tipRounding), controlPoint: CGPoint(x: centerX, y: tipY))
+        path.addLine(to: CGPoint(x: centerX - sideX, y: sideY))
+        path.close()
+        return path
     }
 
     // Photo pin artwork is authored on a 52x63 grid and rendered at 2x so that iconSize 0.5 shows it at 52x63.

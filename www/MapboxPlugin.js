@@ -147,6 +147,19 @@ function call(action, args) {
 
 // Loaded on first use, like AndroidTouchRegions, so module load order never matters.
 function markerImages() { return require('./MarkerImageSource'); }
+
+// Checked here, without loading the module, so URL-only and Find markers keep the exact
+// original call path. Keys: addMarker uses imageBinary/imageMimeType, loadMarkers the
+// capitalized ImageBinary/ImageMimeType.
+function hasBinaryFields(markers, binaryKey, mimeKey) {
+  for (var i = 0; i < markers.length; i++) {
+    var marker = markers[i];
+    if (marker && typeof marker === 'object' &&
+        (Object.prototype.hasOwnProperty.call(marker, binaryKey) ||
+         Object.prototype.hasOwnProperty.call(marker, mimeKey))) return true;
+  }
+  return false;
+}
 // Native rejects calls above 4 MiB; keep headroom for the options wrapper.
 var MARKER_BATCH_BUDGET = 4 * 1024 * 1024 - 64 * 1024;
 
@@ -405,7 +418,7 @@ var api = {
   addMarker: function (options) {
     options = options || {};
     // Find markers and URL-only markers take the original synchronous path unchanged.
-    if (!markerImages().needsWork([options], markerImages().ADD_KEYS)) {
+    if (!hasBinaryFields([options], 'imageBinary', 'imageMimeType')) {
       return call('addMarker', [options]);
     }
     var lifecycle = lifecycleGeneration;
@@ -424,7 +437,7 @@ var api = {
       return Promise.reject(new Error('Too many markers: maximum allowed is ' + MAX_MARKERS + '.'));
     }
     if (!Array.isArray(options.markers) ||
-        !markerImages().needsWork(options.markers, markerImages().LOAD_KEYS)) {
+        !hasBinaryFields(options.markers, 'ImageBinary', 'ImageMimeType')) {
       return call('loadMarkers', [options]);
     }
     return loadMarkersWithImages(options);
