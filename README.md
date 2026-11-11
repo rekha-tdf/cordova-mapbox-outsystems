@@ -67,7 +67,7 @@ Set the consuming iOS application's minimum deployment target explicitly to **14
 - `MAPBOX_ACCESS_TOKEN` must be a public `pk.*` token. Both platform builds reject configured secret tokens. Initialization always reads the current configuration and removes legacy cached values, so token rotation works after app upgrades. Unconfigured build templates may still be prepared, but cannot initialize the map.
 - Style URLs must be `mapbox://styles/<owner>/<style>` or HTTPS on an explicitly approved host. `MAPBOX_ALLOWED_STYLE_HOSTS` is a comma-separated build preference, defaulting to `api.mapbox.com`. Configure additional trusted style hosts through OutSystems Extensibility Configuration. Credentials in URLs, non-443 ports, fragments, HTTP and local-file URLs are rejected. Only allow hosts serving trusted styles: this entry-point policy does not inspect redirects or every resource referenced by a style.
 - Marker `imageUrl` values must be HTTPS URLs or base64 `data:image/(png|jpeg|webp|gif)` URIs, up to 1 MiB of image data. `MAPBOX_ALLOWED_MARKER_IMAGE_HOSTS` is an optional comma-separated build preference; when set, only those hosts (including redirect targets) are allowed. When empty (the default), any HTTPS host is allowed.
-- Native inputs are limited to approximately 4 MiB; at most 10,000 markers may exist at once, with marker IDs limited to 256 characters/bytes. Boundary batches allow 1,000 boundaries and 20,000 total vertices. Imported paths allow 2â€“20,000 points. Tracking stops location updates at the recording limit; call `stopPathTracking()` to retrieve the retained points. Stopping an empty recording returns an empty path with zero distance.
+- Native inputs are limited to approximately 4 MiB; at most 10,000 markers may exist at once, with marker IDs limited to 256 characters/bytes. Boundary batches allow 1,000 boundaries and 20,000 total vertices. Imported paths allow 2–20,000 points. Tracking stops location updates at the recording limit; call `stopPathTracking()` to retrieve the retained points. Stopping an empty recording returns an empty path with zero distance.
 - Offline zooms must be between 2 and 18, with `minZoom <= maxZoom`; invalid values are rejected. Both circle and rectangle downloads are checked against a conservative bounding-box diagonal of 100 km and an estimated 50,000-tile budget (including lower zooms). This can reject large/high-zoom requests that older releases accepted. Polar and antimeridian-crossing bounds are rejected. The budget is an estimate, not a byte quota; Mapbox's tile-store constraints still apply. The consuming app should manage retained offline regions and its storage budget.
 - Style URLs and underlying SDK error details are no longer included in plugin diagnostic logs.
 
@@ -606,6 +606,8 @@ Adds one marker. If a marker with the same `id` already exists, it is replaced.
 | `isFind` | boolean | No | `false` | Blue pin with a magnifying-glass icon. |
 | `pinColor` | string | No | Red, or blue when `isFind` | `#RRGGBB` or `#RRGGBBAA` (alpha last). Invalid values fall back to the default. |
 | `imageUrl` | string | No | None | Image shown inside the pin. See [Image sources](#marker-image-sources). |
+| `imageBinary` | Binary (base64 string), data URI, `ArrayBuffer`, `Uint8Array` or byte array | No | None | **Waypoint markers only.** Image bytes, converted in the WebView. Takes priority over `imageUrl`. Ignored when `isFind` is `true`. See [Waypoint binary images](#waypoint-binary-images). |
+| `imageMimeType` | string | No | Detected from the bytes | Optional hint such as `image/png`. The file signature wins when it is recognized. |
 | `pinStyle` | string | No | Classic pin | `"photo"` for the larger photo pin. See [Marker appearance](#marker-appearance). |
 | `isOnline` | boolean | No | `true` | `true` when the marker is synced with the backend, `false` when it was created on the device and has not been saved yet (so it has no server-assigned ID). The pin looks the same either way; the flag is returned in [`onMarkerClick`](#onmarkerclickcallback-errorcallback) events. |
 
@@ -662,6 +664,8 @@ Adds many markers in one native call. Use this instead of calling `addMarker` in
 | `IsFind` | boolean | No | `false` | Same as `isFind` in `addMarker`. |
 | `PinColor` | string | No | Red, or blue when `IsFind` | Same as `pinColor` in `addMarker`. |
 | `ImageUrl` | string | No | None | Same as `imageUrl` in `addMarker`. |
+| `ImageBinary` | Binary Data / base64 | No | None | Same as `imageBinary` in `addMarker` (Waypoints only). |
+| `ImageMimeType` | string | No | Detected | Same as `imageMimeType` in `addMarker`. |
 | `PinStyle` | string | No | Classic pin | Same as `pinStyle` in `addMarker`. |
 | `IsOnline` | boolean | No | `true` | Same as `isOnline` in `addMarker`. `true` if the marker is synced, `false` if it is still offline. |
 
@@ -767,6 +771,50 @@ window.MapboxPlugin.onMarkerClick(function (event) {
 | HTTPS URL | `https://cdn.example.com/a.png` | HTTPS only, no user name or password in the URL. Must pass the host allowlist, if one is configured, including every redirect. |
 | Base64 data URI | `data:image/png;base64,iVBORw0...` | Type `png`, `jpeg`, `jpg`, `webp`, or `gif`. Base64 only, up to 1 MiB of image data. Useful for OutSystems binary data, for example `"data:image/png;base64," + BinaryToBase64(Image)`. |
 
+### Waypoint binary images
+
+Find and Waypoint markers use the same `addMarker` / `loadMarkers` functions and the same native pin renderer; `isFind` / `IsFind` is the only difference. Images are handled per type:
+
+| Marker | Image input | What happens |
+|---|---|---|
+| Find (`isFind: true`) | `imageUrl` | Unchanged. The URL is passed to native and downloaded there. Binary fields are ignored (one console warning). |
+| Waypoint (`isFind` false or omitted) | `imageBinary` | Converted in the WebView into a `data:image/...;base64,` source, then rendered through the existing `imageUrl` path. |
+| Waypoint without binary | `imageUrl` | Unchanged, as before. |
+
+Conversion of each Waypoint binary:
+
+1. Accepts OutSystems Binary Data (a base64 string), a data URI, URL-safe or line-wrapped base64, `ArrayBuffer`, `Uint8Array` or an array of bytes.
+2. Detects PNG, JPEG, GIF, WebP and BMP from the file signature, so a wrong or `application/octet-stream` type is fine.
+3. Decodes the image with the WebView, takes the center square (what the round pin shows anyway) and redraws it at up to 192 x 192: JPEG stays JPEG, everything else becomes PNG (keeps transparency). EXIF rotation is applied, and photos up to 10 MiB are accepted because they are reduced before crossing the bridge.
+4. If the WebView cannot decode it, a PNG/JPEG/GIF/WebP up to 1 MiB is sent as-is; otherwise the marker shows a plain pin (or its `imageUrl`, if also given) and a console warning is logged, like a failed image download.
+
+Data that is not binary at all (for example invalid base64) rejects the call before any marker changes. Markers that carry identical bytes share one conversion and one native image. Each Waypoint keeps its own image, ID, coordinates, color and `pinStyle`.
+
+OutSystems example (`Markers` is a List of `{ Id, Latitude, Longitude, IsFind, ImageUrl, ImageBinary, ... }`):
+
+```javascript
+// Find markers: ImageUrl. Waypoint markers: ImageBinary (Binary Data).
+window.MapboxPlugin.loadMarkers($parameters.Markers, { replace: true })
+  .then($resolve)
+  .catch($reject);
+```
+
+```javascript
+window.MapboxPlugin.addMarker({
+  id: $parameters.WaypointId,
+  latitude: $parameters.Latitude,
+  longitude: $parameters.Longitude,
+  isFind: false,
+  imageBinary: $parameters.Photo   // OutSystems Binary Data input
+}).then($resolve).catch($reject);
+```
+
+Notes:
+
+- Calls with a binary image resolve after conversion. Await them before `clearMarkers()`, `removeMarker()` or another load that must run after them. Calls without binary fields run exactly as before.
+- If the converted list is larger than the 4 MiB bridge limit, `loadMarkers` sends it in several native calls: the first applies `replace`, the rest append. Missing `Id`s keep their list index. If a later batch fails, earlier batches stay on the map.
+- `close()` during conversion rejects the call with a cancellation error and nothing is drawn.
+
 Rejected examples: `http://...`, `file:///...`, `https://user:pass@host/...`, `data:text/html;base64,...`, `data:image/png,<raw data>`.
 
 #### Restricting image hosts
@@ -803,7 +851,7 @@ By default, any HTTPS host is allowed. To allow only specific hosts, set the `MA
 
 ### Marker platform differences
 
-- **Pin size.** The pin is drawn 72 Ã— 96 on both platforms, but Android uses physical pixels and iOS uses points. On a typical 3Ã— Android phone the pin appears about one third the size of the iOS pin, so images inside it are smaller too.
+- **Pin size.** The pin is drawn 72 × 96 on both platforms, but Android uses physical pixels and iOS uses points. On a typical 3Ã— Android phone the pin appears about one third the size of the iOS pin, so images inside it are smaller too.
 - **Tap area.** Android also reports taps on the map within 150 m of a marker. iOS reports only taps on the pin.
 - **Non-object items in `loadMarkers`.** Android skips `null` items. On iOS, one non-object item makes the whole array read as empty, so with `replace: true` all markers are cleared.
 
@@ -813,6 +861,7 @@ By default, any HTTPS host is allowed. To allow only specific hosts, set the `MA
 - **New:** `pinColor` / `PinColor` and `imageUrl` / `ImageUrl`.
 - **New:** `isFind` pins show a magnifying-glass icon on both platforms.
 - **New:** the `MAPBOX_ALLOWED_MARKER_IMAGE_HOSTS` preference.
+- **New (1.0.5):** `imageBinary` / `ImageBinary` and `imageMimeType` / `ImageMimeType` for Waypoint markers. Find markers are unchanged.
 
 ## Touch Routing
 

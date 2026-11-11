@@ -145,6 +145,74 @@ function call(action, args) {
   });
 }
 
+// Loaded on first use, like AndroidTouchRegions, so module load order never matters.
+function markerImages() { return require('./MarkerImageSource'); }
+// Native rejects calls above 4 MiB; keep headroom for the options wrapper.
+var MARKER_BATCH_BUDGET = 4 * 1024 * 1024 - 64 * 1024;
+
+function markerLabel(id, index) {
+  if (id !== undefined && id !== null && id !== '') return '"' + String(id).slice(0, 64) + '"';
+  return index === null ? '(no id)' : 'at index ' + index;
+}
+
+// Waypoint binaries become data URIs. Every marker is converted and validated before
+// any native change; an invalid binary rejects the whole call, like an invalid imageUrl.
+function loadMarkersWithImages(options) {
+  var lifecycle = lifecycleGeneration;
+  var cache = {};
+  var keys = markerImages().LOAD_KEYS;
+  return Promise.all(options.markers.map(function (marker, index) {
+    return markerImages().prepare(window, marker, keys, cache, markerLabel(marker && marker.Id, index));
+  })).then(function (prepared) {
+    if (lifecycle !== lifecycleGeneration) throw cancellationError('loadMarkers');
+    var base = {};
+    Object.keys(options).forEach(function (key) { if (key !== 'markers') base[key] = options[key]; });
+    var batches = splitMarkerBatches(prepared, base);
+    if (batches.length === 1) {
+      base.markers = prepared;
+      return call('loadMarkers', [base]);
+    }
+    // Too large for one bridge call: the first batch honours replace, later ones append.
+    // Missing Ids keep their whole-list index, matching the single-call default.
+    batches.forEach(function (batch) {
+      batch.items.forEach(function (entry) {
+        if (entry.marker && typeof entry.marker === 'object' &&
+            (entry.marker.Id === undefined || entry.marker.Id === null)) {
+          entry.marker = Object.assign({}, entry.marker, { Id: String(entry.index) });
+        }
+      });
+    });
+    var chain = Promise.resolve();
+    batches.forEach(function (batch, number) {
+      chain = chain.then(function () {
+        if (lifecycle !== lifecycleGeneration) throw cancellationError('loadMarkers');
+        var request = Object.assign({}, base);
+        if (number > 0) request.replace = false;
+        request.markers = batch.items.map(function (entry) { return entry.marker; });
+        return call('loadMarkers', [request]);
+      });
+    });
+    return chain.then(function () { return undefined; });
+  });
+}
+
+function splitMarkerBatches(markers, base) {
+  var overhead = markerImages().nativeJsonSize(Object.assign({}, base, { replace: false, markers: [] }));
+  var batches = [];
+  var current = { items: [], size: overhead };
+  markers.forEach(function (marker, index) {
+    var size = markerImages().nativeJsonSize(marker === undefined ? null : marker) + 1;
+    if (current.items.length && current.size + size > MARKER_BATCH_BUDGET) {
+      batches.push(current);
+      current = { items: [], size: overhead };
+    }
+    current.items.push({ marker: marker, index: index });
+    current.size += size;
+  });
+  batches.push(current);
+  return batches;
+}
+
 var api = {
   // Cancellation settles the old request; it does not mean the next map failed.
   isCancellationError: isCancellationError,
@@ -335,7 +403,17 @@ var api = {
   },
 
   addMarker: function (options) {
-    return call('addMarker', [options || {}]);
+    options = options || {};
+    // Find markers and URL-only markers take the original synchronous path unchanged.
+    if (!markerImages().needsWork([options], markerImages().ADD_KEYS)) {
+      return call('addMarker', [options]);
+    }
+    var lifecycle = lifecycleGeneration;
+    return markerImages().prepare(window, options, markerImages().ADD_KEYS, {},
+      markerLabel(options.id, null)).then(function (prepared) {
+      if (lifecycle !== lifecycleGeneration) throw cancellationError('addMarker');
+      return call('addMarker', [prepared]);
+    });
   },
 
   loadMarkers: function (markers, options) {
@@ -345,7 +423,11 @@ var api = {
     if (options.markers.length > MAX_MARKERS) {
       return Promise.reject(new Error('Too many markers: maximum allowed is ' + MAX_MARKERS + '.'));
     }
-    return call('loadMarkers', [options]);
+    if (!Array.isArray(options.markers) ||
+        !markerImages().needsWork(options.markers, markerImages().LOAD_KEYS)) {
+      return call('loadMarkers', [options]);
+    }
+    return loadMarkersWithImages(options);
   },
 
   // Returns a Promise; optional callbacks also support Cordova/OutSystems callers.
