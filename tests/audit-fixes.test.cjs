@@ -90,11 +90,12 @@ test('offline deletes keep shared style packs unless asked', () => {
   assert.match(ios, /options\["deleteStylePack"\] as\? Bool \?\? false/);
 });
 
-test('path visibility redraws stored geometry and clear resets segments on both platforms', () => {
+test('path visibility redraws stored segments and clear resets segments on both platforms', () => {
+  // loadPath always stores at least one segment, so showing segments also restores a loaded path.
   const androidVisibility = between(android, 'private void setPathVisibility(', 'private void sendKeepCallback(');
-  assert.match(androidVisibility, /redrawPathAnnotations\(\)/);
+  assert.match(androidVisibility, /drawSegmentAnnotations\(\)/);
   const iosVisibility = between(ios, 'func setPathVisibility(command:', '@objc(downloadOfflineRegion:');
-  assert.match(iosVisibility, /self\.redrawPathAnnotations\(\)/);
+  assert.match(iosVisibility, /self\.drawSegmentAnnotations\(\)/);
   for (const [source, start, end] of [
     [android, 'private void clearPaths(', 'private void setPathVisibility('],
     [ios, 'func clearPaths(command:', '@objc(setPathVisibility:'],

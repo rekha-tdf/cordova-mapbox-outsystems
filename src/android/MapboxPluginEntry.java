@@ -4210,42 +4210,6 @@ private boolean addMarkerInternal(
         currentSegmentAnnotation = lineAnnotationManager.create(options);
     }
 
-    /** Rebuilds the drawn path from stored geometry; annotations are only a view of it. */
-    private void redrawPathAnnotations() {
-        if (!ensureLineAnnotationManager()) {
-            return;
-        }
-        for (PolylineAnnotation ann : pathAnnotations) {
-            lineAnnotationManager.delete(ann);
-        }
-        pathAnnotations.clear();
-        if (currentSegmentAnnotation != null) {
-            lineAnnotationManager.delete(currentSegmentAnnotation);
-            currentSegmentAnnotation = null;
-        }
-
-        // A loaded path has no recorded segments; draw its points as one line.
-        List<List<Point>> lines = pathSegments.isEmpty()
-                && (currentSegment == null || currentSegment.isEmpty())
-            ? Collections.singletonList(pathPoints)
-            : pathSegments;
-        List<PolylineAnnotationOptions> lineOptions = new ArrayList<>();
-        for (List<Point> line : lines) {
-            if (line.size() < 2) {
-                continue;
-            }
-            lineOptions.add(new PolylineAnnotationOptions()
-                .withGeometry(LineString.fromLngLats(line))
-                .withLineColor(pathLineColor)
-                .withLineWidth(pathLineWidth)
-                .withLineOpacity(pathLineOpacity));
-        }
-        if (!lineOptions.isEmpty()) {
-            pathAnnotations.addAll(lineAnnotationManager.create(lineOptions));
-        }
-        updatePathAnnotation();
-    }
-
     private void startPathTracking(JSONObject options, CallbackContext callback) {
         runForSession(() -> {
             if (mapView == null) {
@@ -4556,6 +4520,8 @@ private boolean addMarkerInternal(
             }
 
             boolean visible = options.optBoolean("visible", true);
+            boolean wasVisible = isPathVisible;
+
             isPathVisible = visible;
 
             if (!visible) {
@@ -4571,8 +4537,12 @@ private boolean addMarkerInternal(
                 }
                 pathAnnotations.clear();
             } else {
-                // Show: redraw frozen segments or the loaded path, then the live segment
-                redrawPathAnnotations();
+                // Show: bring back the finished segments (only if they were hidden, so a
+                // repeated call does not stack duplicates), then the live segment.
+                if (!wasVisible) {
+                    drawSegmentAnnotations();
+                }
+                updatePathAnnotation();
             }
 
             callback.success();

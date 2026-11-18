@@ -154,8 +154,10 @@ test('loadMarkers without binary fields is byte-for-byte the original call', () 
   const markers = [{ Id: '1', Latitude: 1, Longitude: 1, IsFind: true, ImageUrl: 'https://a.example/1.png' }];
   api.loadMarkers(markers, options);
   assert.strictEqual(calls.length, 1, 'synchronous');
-  assert.strictEqual(calls[0].args[0], options);
+  // The caller's options object is copied, never mutated; the payload is otherwise unchanged.
+  assert.strictEqual(JSON.stringify(calls[0].args[0]), JSON.stringify({ replace: false, markers: markers }));
   assert.strictEqual(calls[0].args[0].markers, markers);
+  assert.deepStrictEqual(options, { replace: false });
 });
 
 test('without a canvas the original PNG is sent; unsupported formats fall back to plain pin or URL', async () => {

@@ -1082,24 +1082,6 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
         lineAnnotationManager?.annotations.append(annotation)
     }
 
-    /// Rebuilds the drawn path from stored geometry; annotations are only a view of it.
-    private func redrawPathAnnotations() {
-        guard ensureLineAnnotationManager() else { return }
-        currentSegmentAnnotation = nil
-
-        // A loaded path has no recorded segments; draw its points as one line.
-        let lines = pathSegments.isEmpty && currentSegment.isEmpty ? [pathPoints] : pathSegments
-        pathAnnotations = lines.filter { $0.count >= 2 }.map { line in
-            var annotation = PolylineAnnotation(lineCoordinates: line)
-            annotation.lineColor = StyleColor(colorOption(pathLineColor, defaultColor: .red))
-            annotation.lineWidth = pathLineWidth
-            annotation.lineOpacity = pathLineOpacity
-            return annotation
-        }
-        lineAnnotationManager?.annotations = pathAnnotations
-        updatePathAnnotation()
-    }
-
     @objc(startPathTracking:)
     func startPathTracking(command: CDVInvokedUrlCommand) {
         rememberCommand(command)
@@ -1385,6 +1367,8 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
             let options = command.argument(at: 0) as? [String: Any] ?? [:]
             guard self.validInput(options, command) else { return }
             let visible = self.boolOption(options["visible"], defaultValue: true)
+            let wasVisible = self.isPathVisible
+
             self.isPathVisible = visible
 
             if !visible {
@@ -1393,8 +1377,12 @@ class MapboxPlugin: CDVPlugin, CLLocationManagerDelegate, UIGestureRecognizerDel
                 self.pathAnnotations.removeAll()
                 self.currentSegmentAnnotation = nil
             } else {
-                // Show: redraw frozen segments or the loaded path, then the live segment
-                self.redrawPathAnnotations()
+                // Show: bring back the finished segments (only if they were hidden, so a
+                // repeated call does not stack duplicates), then the live segment.
+                if !wasVisible {
+                    self.drawSegmentAnnotations()
+                }
+                self.updatePathAnnotation()
             }
 
             self.sendSuccess(command)
